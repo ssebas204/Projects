@@ -4,6 +4,7 @@ import copy
 import html
 import json
 import sys
+import textwrap
 from datetime import date, datetime
 from pathlib import Path
 
@@ -38,6 +39,12 @@ from analytics import (
 from engine import cost, effective_products, fingerprint, route_cost, schedule_route, solve, validate
 from io_utils import excel_export, import_three
 
+
+def clean_html(s: str) -> str:
+    """Strips common leading indentation so CommonMark never treats HTML as an indented code block."""
+    return textwrap.dedent(s).strip()
+
+
 st.set_page_config(
     page_title="Planificador de Fabricación · Volpak 4",
     page_icon="◈",
@@ -46,21 +53,12 @@ st.set_page_config(
 )
 
 # ---------------------------------------------------------------------------
-# TEMA Y FONDO VISUAL (SELECTOR DINÁMICO)
+# TEMA Y FONDO VISUAL (SELECTOR DINÁMICO GLOBAL)
 # ---------------------------------------------------------------------------
-st.sidebar.markdown("### 🎨 Apariencia de Fondo")
-theme_choice = st.sidebar.selectbox(
-    "Color de fondo:",
-    ["⚪ Blanco Puro (#ffffff)", "🏢 Slate Técnico (#f8fafc)", "🌙 Modo Oscuro (#0b1329)"],
-    index=1 if "ui_theme_select" not in st.session_state else (
-        0 if "Blanco Puro" in st.session_state.ui_theme_select else (
-            2 if "Modo Oscuro" in st.session_state.ui_theme_select else 1
-        )
-    ),
-    key="ui_theme_select",
-    help="Permite alternar entre fondo blanco puro, slate corporativo y modo oscuro de alto contraste."
-)
+if "ui_theme_select" not in st.session_state:
+    st.session_state.ui_theme_select = "🏢 Slate Técnico (#f8fafc)"
 
+theme_choice = st.session_state.ui_theme_select
 is_dark = "Modo Oscuro" in theme_choice
 is_pure_white = "Blanco Puro" in theme_choice
 
@@ -87,7 +85,8 @@ elif is_pure_white:
     bg_style = """
     .stApp { background: #ffffff !important; color: #0f172a !important; }
     .block-container { background: #ffffff !important; }
-    .exec-card, [data-testid="stMetric"] { background: #ffffff !important; border: 1px solid #e2e8f0 !important; }
+    .exec-card, [data-testid="stMetric"] { background: #ffffff !important; border: 1px solid #e2e8f0 !important; box-shadow: 0 1px 3px rgba(0,0,0,0.02) !important; }
+    .game-scoreboard { background: #ffffff !important; border: 2px solid #3b82f6 !important; }
     """
 else:
     bg_style = """
@@ -96,9 +95,9 @@ else:
     """
 
 st.markdown(f"""<style>
-.block-container {{padding-top:2.5rem;padding-bottom:3rem;max-width:1440px;}}
+.block-container {{padding-top:2.2rem;padding-bottom:3rem;max-width:1440px;}}
 h1,h2,h3,h4 {{letter-spacing:-.025em;color:#0f172a;}}
-.app-header{{display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;border-bottom:1px solid #e2e8f0;padding-bottom:16px;margin-bottom:20px;}}
+.app-header{{display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;border-bottom:1px solid #e2e8f0;padding-bottom:16px;margin-bottom:16px;}}
 .app-header h1{{font-size:28px;font-weight:700;color:#0f172a;margin:0;padding:0;}}
 .app-header .tagline{{font-size:14px;color:#64748b;font-weight:400;}}
 .app-header .author{{font-size:13px;color:#334155;background:#e2e8f0;padding:4px 12px;border-radius:20px;font-weight:500;}}
@@ -171,72 +170,198 @@ def pretty(n, digits=0):
 MODE_VOLPAK = "📋 Caso Estudio: Línea Volpak 4 (Septiembre 2026)"
 MODE_CUSTOM = "⚙️ Nuevo Escenario / Cargar Datos"
 
-# Session initialization
+# Session State Initialization
 if "app_mode" not in st.session_state:
-    st.session_state.app_mode = MODE_VOLPAK
-if "last_mode" not in st.session_state:
-    st.session_state.last_mode = MODE_VOLPAK
-
-if "source" not in st.session_state:
-    st.session_state.source = demo()
+    st.session_state.app_mode = None
+if "epoch" not in st.session_state:
     st.session_state.epoch = 0
-    try:
-        st.session_state.result = solve(st.session_state.source)
-    except Exception:
-        st.session_state.result = None
+if "saved" not in st.session_state:
     st.session_state.saved = {}
-
 if "game_sequence" not in st.session_state:
     st.session_state.game_sequence = []
+if "source" not in st.session_state:
+    st.session_state.source = demo()
+    st.session_state.result = None
+
+# ---------------------------------------------------------------------------
+# PANTALLA INICIAL / MODAL DE ACCESO (SPLASH GATE)
+# ---------------------------------------------------------------------------
+if st.session_state.get("app_mode") is None:
+    splash_l, splash_c, splash_r = st.columns([1, 6, 1])
+    with splash_c:
+        st.markdown(clean_html(f"""
+        <div style="text-align:center;padding:28px 0 12px 0;">
+            <div style="font-size:42px;margin-bottom:8px;line-height:1;">◈</div>
+            <h1 style="font-size:32px;font-weight:800;letter-spacing:-0.03em;margin:0 0 6px 0;color:{'#f8fafc' if is_dark else '#0f172a'};">
+                Planificador de Fabricación
+            </h1>
+            <div style="font-size:15.5px;color:{'#94a3b8' if is_dark else '#475569'};font-weight:400;margin-bottom:12px;">
+                Programación matemática de producción y optimización exacta de cambios de formato con OR-Tools CP-SAT
+            </div>
+            <span style="font-size:13px;color:{'#cbd5e1' if is_dark else '#334155'};background:{'#1e293b' if is_dark else '#e2e8f0'};padding:5px 16px;border-radius:20px;font-weight:600;">
+                by: Sebastian Parra
+            </span>
+        </div>
+        """), unsafe_allow_html=True)
+
+        # Theme Selector on the Splash Screen
+        st.markdown(clean_html(f"""
+        <div style="text-align:center;margin:18px 0 6px 0;">
+            <span style="font-size:13px;font-weight:700;color:{'#94a3b8' if is_dark else '#475569'};text-transform:uppercase;letter-spacing:0.04em;">
+                🎨 Apariencia de fondo / Tema visual:
+            </span>
+        </div>
+        """), unsafe_allow_html=True)
+
+        _, th_col, _ = st.columns([1, 2.5, 1])
+        with th_col:
+            theme_opts = ["🏢 Slate Técnico (#f8fafc)", "⚪ Blanco Puro (#ffffff)", "🌙 Modo Oscuro (#0b1329)"]
+            cur_th = st.session_state.get("ui_theme_select", "🏢 Slate Técnico (#f8fafc)")
+            cur_idx = 0
+            if "Blanco Puro" in cur_th:
+                cur_idx = 1
+            elif "Modo Oscuro" in cur_th:
+                cur_idx = 2
+            chosen_th = st.selectbox(
+                "Color de fondo:",
+                theme_opts,
+                index=cur_idx,
+                key="splash_theme_select",
+                label_visibility="collapsed"
+            )
+            if chosen_th != cur_th:
+                st.session_state.ui_theme_select = chosen_th
+                st.rerun()
+
+        st.markdown("<div style='height:14px;'></div>", unsafe_allow_html=True)
+
+        st.markdown(clean_html(f"""
+        <div style="background:{'#1e293b' if is_dark else '#f8fafc'};border:1px solid {'#334155' if is_dark else '#e2e8f0'};border-radius:14px;padding:22px 26px;margin-bottom:24px;box-shadow:0 4px 16px rgba(0,0,0,0.03);text-align:center;">
+            <h3 style="margin:0 0 6px 0;font-size:20px;font-weight:700;color:{'#f8fafc' if is_dark else '#0f172a'};">
+                ¿Qué deseas evidenciar en esta sesión?
+            </h3>
+            <p style="margin:0;font-size:14.5px;color:{'#94a3b8' if is_dark else '#64748b'};">
+                Selecciona si deseas explorar el caso de estudio base de la Línea Volpak 4 o ingresar datos para un nuevo escenario:
+            </p>
+        </div>
+        """), unsafe_allow_html=True)
+
+        c_c1, c_c2 = st.columns(2, gap="medium")
+
+        with c_c1:
+            st.markdown(clean_html(f"""
+            <div style="background:{'#1e293b' if is_dark else '#ffffff'};border:2px solid #3b82f6;border-radius:14px;padding:22px;height:290px;display:flex;flex-direction:column;justify-content:space-between;box-shadow:0 4px 12px rgba(59,130,246,0.08);">
+                <div>
+                    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">
+                        <span style="font-size:22px;">📋</span>
+                        <span style="background:#dbeafe;color:#1d4ed8;font-size:11px;font-weight:700;padding:3px 10px;border-radius:12px;">CASO BASE DEMOSTRADO</span>
+                    </div>
+                    <h4 style="margin:0 0 8px 0;font-size:18px;font-weight:700;color:{'#f8fafc' if is_dark else '#0f172a'};">
+                        Línea Volpak 4 (Septiembre 2026)
+                    </h4>
+                    <ul style="margin:0 0 12px 0;padding-left:18px;font-size:13.5px;color:{'#cbd5e1' if is_dark else '#475569'};line-height:1.65;">
+                        <li><strong>17 SKUs</strong> agrupados en <strong>8 familias</strong> conexas.</li>
+                        <li>Demanda mensual: <strong>86.331 cartones</strong>.</li>
+                        <li>Secuenciación óptima demostrada: <strong>840 min</strong> (14,0 h).</li>
+                        <li>Cierre al <strong>24 de septiembre</strong> · 14 turnos libres.</li>
+                        <li>Incluye mini-juego interactivo y simulador.</li>
+                    </ul>
+                </div>
+            </div>
+            """), unsafe_allow_html=True)
+            st.markdown("<div style='height:8px;'></div>", unsafe_allow_html=True)
+            if st.button("Explorar Caso Volpak 4 →", type="primary", use_container_width=True, key="btn_enter_volpak"):
+                st.session_state.app_mode = MODE_VOLPAK
+                st.session_state.source = demo()
+                st.session_state.epoch = 0
+                st.session_state.game_sequence = []
+                try:
+                    st.session_state.result = solve(st.session_state.source)
+                except Exception:
+                    st.session_state.result = None
+                st.rerun()
+
+        with c_c2:
+            st.markdown(clean_html(f"""
+            <div style="background:{'#1e293b' if is_dark else '#ffffff'};border:2px solid {'#475569' if is_dark else '#cbd5e1'};border-radius:14px;padding:22px;height:290px;display:flex;flex-direction:column;justify-content:space-between;box-shadow:0 2px 8px rgba(0,0,0,0.03);">
+                <div>
+                    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">
+                        <span style="font-size:22px;">⚙️</span>
+                        <span style="background:{'#334155' if is_dark else '#f1f5f9'};color:{'#cbd5e1' if is_dark else '#475569'};font-size:11px;font-weight:700;padding:3px 10px;border-radius:12px;">ESCENARIO LIMPIO</span>
+                    </div>
+                    <h4 style="margin:0 0 8px 0;font-size:18px;font-weight:700;color:{'#f8fafc' if is_dark else '#0f172a'};">
+                        Nuevo Escenario / Cargar Datos
+                    </h4>
+                    <ul style="margin:0 0 12px 0;padding-left:18px;font-size:13.5px;color:{'#cbd5e1' if is_dark else '#475569'};line-height:1.65;">
+                        <li>Escenario limpio sin datos precargados.</li>
+                        <li>Carga los <strong>3 libros Excel</strong> del taller o JSON.</li>
+                        <li>Define productos, demandas y matriz manualmente.</li>
+                        <li>Ejecuta el optimizador OR-Tools sobre tus datos.</li>
+                        <li>Diagnóstico de madurez operativa para tu planta.</li>
+                    </ul>
+                </div>
+            </div>
+            """), unsafe_allow_html=True)
+            st.markdown("<div style='height:8px;'></div>", unsafe_allow_html=True)
+            if st.button("Configurar Nuevo Escenario →", type="secondary", use_container_width=True, key="btn_enter_custom"):
+                st.session_state.app_mode = MODE_CUSTOM
+                st.session_state.source = copy.deepcopy(BLANK_SCENARIO)
+                st.session_state.custom_scenario = copy.deepcopy(BLANK_SCENARIO)
+                st.session_state.epoch = 0
+                st.session_state.game_sequence = []
+                st.session_state.result = None
+                st.rerun()
+
+    st.stop()
 
 
-def on_mode_change():
-    new_mode = st.session_state.app_mode
-    name_k = f"{st.session_state.epoch}_name"
-    if new_mode == MODE_VOLPAK:
-        if "source" in st.session_state and st.session_state.source.get("name") != "Línea Volpak 4":
-            st.session_state.custom_scenario = copy.deepcopy(st.session_state.source)
-        st.session_state.source = demo()
-        st.session_state.game_sequence = []
-        try:
-            st.session_state.result = solve(st.session_state.source)
-        except Exception:
-            st.session_state.result = None
-        if name_k in st.session_state:
-            st.session_state[name_k] = "Línea Volpak 4"
-    elif new_mode == MODE_CUSTOM:
-        if "custom_scenario" in st.session_state and st.session_state.custom_scenario:
-            st.session_state.source = copy.deepcopy(st.session_state.custom_scenario)
-        else:
-            custom_init = copy.deepcopy(demo())
-            custom_init["name"] = "Línea de Fabricación (Personalizada)"
-            st.session_state.source = custom_init
-            st.session_state.custom_scenario = copy.deepcopy(custom_init)
-        st.session_state.game_sequence = []
-        try:
-            st.session_state.result = solve(st.session_state.source)
-        except Exception:
-            st.session_state.result = None
-        if name_k in st.session_state:
-            st.session_state[name_k] = st.session_state.source.get("name", "Línea de Fabricación (Personalizada)")
-
-
+# ---------------------------------------------------------------------------
+# APLICACIÓN PRINCIPAL (CUANDO SE HA SELECCIONADO UN MODO)
+# ---------------------------------------------------------------------------
 source = st.session_state.source
 epoch = st.session_state.epoch
 key = lambda name: f"{epoch}_{name}"
 cfg = source.get("config", {})
+is_volpak = (st.session_state.get("app_mode") == MODE_VOLPAK)
+
+# Sidebar: Modo activo y cambio de tema
+st.sidebar.markdown(f"**Modo activo:** {'📋 Caso Volpak 4' if is_volpak else '⚙️ Nuevo Escenario'}")
+if st.sidebar.button("🔄 Cambiar Modo / Volver al Inicio", key="btn_sidebar_mode_reset", use_container_width=True):
+    st.session_state.app_mode = None
+    st.rerun()
+
+st.sidebar.markdown("---")
+st.sidebar.markdown("### 🎨 Apariencia de Fondo")
+theme_opts = ["🏢 Slate Técnico (#f8fafc)", "⚪ Blanco Puro (#ffffff)", "🌙 Modo Oscuro (#0b1329)"]
+cur_th = st.session_state.get("ui_theme_select", "🏢 Slate Técnico (#f8fafc)")
+cur_idx = 0
+if "Blanco Puro" in cur_th:
+    cur_idx = 1
+elif "Modo Oscuro" in cur_th:
+    cur_idx = 2
+
+chosen_sb_theme = st.sidebar.selectbox(
+    "Color de fondo:",
+    theme_opts,
+    index=cur_idx,
+    key="sidebar_theme_select",
+    help="Permite alternar entre fondo blanco puro, slate corporativo y modo oscuro de alto contraste."
+)
+if chosen_sb_theme != cur_th:
+    st.session_state.ui_theme_select = chosen_sb_theme
+    st.rerun()
 
 # Header
 tagline_text = (
     "Línea Volpak 4 · Optimización exacta de cambios de formato con OR-Tools CP-SAT"
-    if st.session_state.get("app_mode") == MODE_VOLPAK
+    if is_volpak
     else (
         f"{source.get('name', 'Línea de Producción')} · Programación matemática y optimización con OR-Tools CP-SAT"
         if source.get("name") and source.get("name") not in ["Nuevo Escenario", "Nuevo Escenario de Producción"]
         else "Nuevo Escenario · Programación matemática y optimización con OR-Tools CP-SAT"
     )
 )
-st.markdown(f"""
+st.markdown(clean_html(f"""
 <div class="app-header">
     <div>
         <h1>Planificador de Fabricación</h1>
@@ -244,83 +369,21 @@ st.markdown(f"""
     </div>
     <div class="author">by: Sebastian Parra</div>
 </div>
-""", unsafe_allow_html=True)
+"""), unsafe_allow_html=True)
 
-# Apartado Inicial: Selector de Caso / Modo
-st.markdown("""
-<div style="background:#f8fafc;border:1px solid #cbd5e1;border-radius:12px;padding:14px 18px;margin-bottom:12px;box-shadow:0 1px 3px rgba(0,0,0,0.02);">
-    <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;">
-        <span style="font-size:16px;">🧭</span>
-        <span style="font-size:13.5px;font-weight:700;letter-spacing:0.04em;text-transform:uppercase;color:#1e293b;">
-            Apartado Inicial · Selección de Escenario Operativo
-        </span>
+# Barra superior de modo con botón para cambiar
+m_col1, m_col2 = st.columns([4.5, 1.5])
+with m_col1:
+    mode_badge_label = "📋 Caso de Estudio: Línea Volpak 4 (Septiembre 2026)" if is_volpak else f"⚙️ Modo Activo: {source.get('name', 'Nuevo Escenario')}"
+    st.markdown(clean_html(f"""
+    <div style="display:inline-flex;align-items:center;gap:8px;background:{'#1e293b' if is_dark else '#e2e8f0'};padding:5px 14px;border-radius:20px;font-size:13px;font-weight:600;color:{'#f8fafc' if is_dark else '#1e293b'};margin-bottom:12px;">
+        <span>{mode_badge_label}</span>
     </div>
-    <div style="font-size:13.5px;color:#475569;">
-        ¿Deseas evidenciar el caso de estudio base de la <strong>Línea Volpak 4</strong> o configurar y evaluar un <strong>Nuevo Escenario</strong>?
-    </div>
-</div>
-""", unsafe_allow_html=True)
-
-# Mode Selector
-modo = st.radio(
-    "Modo de la aplicación:",
-    [MODE_VOLPAK, MODE_CUSTOM],
-    horizontal=True,
-    key="app_mode",
-    on_change=on_mode_change,
-    help="Elige el Caso Estudio base para la Línea Volpak 4 o configura un Nuevo Escenario para otra línea."
-)
-is_volpak = (modo == MODE_VOLPAK)
-
-# Onboarding and loading options when in Custom Scenario mode
-if not is_volpak:
-    with st.expander("📥 Cargar datos del Nuevo Escenario (Excel / JSON / Plantilla en blanco)", expanded=(len(source.get("products", [])) == 0 or source.get("name") in ["Línea Volpak 4", "Nuevo Escenario de Producción"])):
-        st.markdown("""
-        <div style="font-size:14px;color:#334155;margin-bottom:10px;">
-            Carga los archivos maestros para este nuevo escenario de fabricación o inicia con una plantilla en blanco:
-        </div>
-        """, unsafe_allow_html=True)
-        top_tab1, top_tab2, top_tab3 = st.tabs(["📊 3 Archivos Excel (Profesor)", "💾 Archivo JSON Guardado", "✨ Plantilla en Blanco"])
-        with top_tab1:
-            st.caption("Carga los tres libros Excel originales del taller (Asignación, Necesidad, Matriz de cambios).")
-            uc1, uc2, uc3 = st.columns(3)
-            top_assign = uc1.file_uploader("1. Asignación de productos", type=["xlsx"], key=key("top_assign"))
-            top_dem = uc2.file_uploader("2. Necesidad de fabricación", type=["xlsx"], key=key("top_dem"))
-            top_mat = uc3.file_uploader("3. Matriz de cambios", type=["xlsx"], key=key("top_mat"))
-            if st.button("Cargar los tres archivos Excel", disabled=not all([top_assign, top_dem, top_mat]), key=key("btn_top_excel")):
-                try:
-                    loaded = import_three(top_assign.getvalue(), top_dem.getvalue(), top_mat.getvalue(), cfg)
-                    issues = validate(loaded)
-                    if issues:
-                        st.error("\n\n".join(issues))
-                    else:
-                        replace_scenario(loaded)
-                except Exception as exc:
-                    st.error(f"Error al importar archivos: {exc}")
-        with top_tab2:
-            st.caption("Restaura un escenario guardado previamente en formato JSON.")
-            top_json = st.file_uploader("Escenario guardado (.json)", type=["json"], key=key("top_json"))
-            if st.button("Restaurar escenario JSON", disabled=top_json is None, key=key("btn_top_json")):
-                try:
-                    loaded = json.loads(top_json.getvalue())
-                    issues = validate(loaded)
-                    if issues or loaded.get("version") != 1:
-                        st.error("\n\n".join(issues) or "Versión de escenario no compatible.")
-                    else:
-                        replace_scenario(loaded)
-                except Exception as exc:
-                    st.error(f"Error al restaurar JSON: {exc}")
-        with top_tab3:
-            st.caption("Crea una plantilla limpia para definir productos, demandas y matriz manualmente en la pestaña 'Productos y Matriz'.")
-            if st.button("Crear nuevo escenario en blanco", key=key("btn_blank")):
-                blank_scen = {
-                    "name": "Nuevo Escenario de Producción",
-                    "config": {"shift_hours": 8, "weekday_shifts": 3, "saturday_shifts": 2, "sunday_shifts": 0, "year": 2026, "month": 9},
-                    "products": [],
-                    "matrix": {},
-                    "closures": []
-                }
-                replace_scenario(blank_scen)
+    """), unsafe_allow_html=True)
+with m_col2:
+    if st.button("🔄 Cambiar de modo", key="btn_top_change_mode", use_container_width=True, help="Volver al selector inicial de escenarios"):
+        st.session_state.app_mode = None
+        st.rerun()
 
 # Context controls
 context = st.columns([2.5, 2, 1.2])
@@ -336,7 +399,7 @@ selected_month = context[1].date_input("Mes de fabricación", value=date(cfg.get
 context[2].markdown("**Línea de producción**")
 context[2].write(", ".join(dict.fromkeys(str(p["line"]) for p in source.get("products", []))) or ("Volpak 4" if is_volpak else "No definida"))
 
-# Navigation tabs
+# Navigation tabs (Exactamente 8 pestañas operativas)
 steps = [
     "📊 Resumen Ejecutivo",
     "📦 1 · Productos y Matriz",
@@ -346,7 +409,6 @@ steps = [
     "📈 Simulador de Sensibilidad",
     "🔬 Métodos y Rigor Matemático",
     "🚀 Escalamiento a Planta",
-    "📖 Auditoría & Documentación",
 ]
 
 def go_step(index: int):
@@ -378,12 +440,11 @@ with tabs[0]:
     )
     exec_subtitle = "Programación matemática de producción mediante minimización de tiempos de cambio y balance de capacidad operativa"
 
-    # Dynamic KPI calculations
     eff_prods = effective_products(source)
     total_dem = sum(p.get("demand", 0) for p in eff_prods)
     net_prod_mins = sum(p.get("demand", 0) * 480.0 / p.get("rate", 1) for p in eff_prods if p.get("rate", 0) > 0)
     opt_setup_mins = float(result.get("setup_minutes", 0.0)) if result else 0.0
-    
+
     avail_shifts_cal = 74
     if cfg.get("weekday_shifts") is not None:
         import calendar as cal_mod
@@ -395,7 +456,7 @@ with tabs[0]:
             for d in range(1, days_in_m + 1)
         )
     avail_mins_cal = avail_shifts_cal * (cfg.get("shift_hours", 8) * 60)
-    
+
     used_shifts_real = len([s for s in result["shifts"] if s.get("production_minutes", 0) > 0 or s.get("setup_minutes", 0) > 0]) if result and "shifts" in result else 0
     free_shifts_real = max(0, avail_shifts_cal - used_shifts_real)
 
@@ -418,8 +479,8 @@ with tabs[0]:
         )
     elif not eff_prods:
         exec_narrative = (
-            f"El escenario actual <strong>{html.escape(source.get('name', 'personalizado'))}</strong> no cuenta con productos activos todavía. "
-            "Carga los archivos Excel de tu línea o ingresa los SKUs y matriz de cambios para calcular el plan maestro óptimo."
+            f"El escenario actual <strong>{html.escape(source.get('name', 'personalizado'))}</strong> se encuentra limpio y no cuenta con productos activos todavía. "
+            "Utiliza el asistente a continuación para cargar los 3 libros de Excel del taller o ingresar tus datos para calcular el plan maestro óptimo."
         )
     elif result:
         exec_narrative = (
@@ -432,237 +493,294 @@ with tabs[0]:
     else:
         exec_narrative = (
             f"Escenario <strong>{html.escape(source.get('name', 'de producción'))}</strong> con "
-            f"<strong>{len(eff_prods)} referencias</strong> y <strong>{pretty(total_dem)} cartones</strong> de demanda programada."
+            f"<strong>{len(eff_prods)} referencias</strong> y <strong>{pretty(total_dem)} cartones</strong> de demanda programada. "
+            "Pendiente de optimizar en el paso 3."
         )
 
-    st.markdown(f"""
+    st.markdown(clean_html(f"""
     <div class="editorial-box">
         <h2>{exec_title}</h2>
         <div style="font-size:13.5px;color:#cbd5e1;font-weight:500;margin-bottom:10px;">{exec_subtitle}</div>
         <p>{exec_narrative}</p>
     </div>
-    """, unsafe_allow_html=True)
+    """), unsafe_allow_html=True)
 
-    # Executive Metric Cards
-    m1, m2, m3, m4 = st.columns(4)
-    with m1:
-        card_m1_sub = "100% de cumplimiento · 0 pendientes" if (result and not result.get("missing")) else ("Sin productos cargados" if not eff_prods else (f"{pretty(result.get('missing', 0))} pendientes" if result else "Pendiente de optimizar"))
-        st.markdown(f"""
-        <div class="exec-card">
-            <div class="card-title">Demanda Programada</div>
-            <div class="card-value">{pretty(total_dem)} <span style="font-size:16px;color:#64748b;">ctn</span></div>
-            <div class="card-sub">{card_m1_sub}</div>
-        </div>
-        """, unsafe_allow_html=True)
-
-    with m2:
-        card_m2_sub = '<span class="optimo-badge">★ Óptimo Demostrado</span>' if (result and result.get("optimization", {}).get("status") == "OPTIMAL" and opt_setup_mins > 0) else ('<span style="font-size:11px;color:#64748b;">Sin cambios</span>' if not eff_prods else '<span class="optimo-badge">★ Factible</span>')
-        st.markdown(f"""
-        <div class="exec-card">
-            <div class="card-title">Tiempo de Cambios</div>
-            <div class="card-value">{pretty(opt_setup_mins, 0)} min <span style="font-size:16px;color:#64748b;">({opt_setup_mins/60.0:.1f} h)</span></div>
-            <div class="card-sub">{card_m2_sub}</div>
-        </div>
-        """, unsafe_allow_html=True)
-
-    cierre_card_sub = "Según capacidad y calendario"
-    if result and result.get("finish"):
-        try:
-            finish_dt = datetime.fromisoformat(str(result["finish"]))
-            spanish_months = {
-                1: "enero", 2: "febrero", 3: "marzo", 4: "abril", 5: "mayo", 6: "junio",
-                7: "julio", 8: "agosto", 9: "septiembre", 10: "octubre", 11: "noviembre", 12: "diciembre"
-            }
-            month_name = spanish_months.get(finish_dt.month, finish_dt.strftime("%B"))
-            prefix = "Cierre anticipado" if free_shifts_real > 0 else "Cierre estimado"
-            cierre_card_sub = f"{prefix}: <strong>{finish_dt.day} de {month_name}</strong>"
-        except Exception:
-            cierre_card_sub = f"Cierre estimado: <strong>{str(result['finish'])[:10]}</strong>"
-
-    with m3:
-        st.markdown(f"""
-        <div class="exec-card">
-            <div class="card-title">Turnos Utilizados</div>
-            <div class="card-value">{used_shifts_real} / {avail_shifts_cal} <span style="font-size:16px;color:#16a34a;">({free_shifts_real} libres)</span></div>
-            <div class="card-sub">{cierre_card_sub}</div>
-        </div>
-        """, unsafe_allow_html=True)
-
-    with m4:
-        st.markdown(f"""
-        <div class="exec-card">
-            <div class="card-title">Ocupación de Capacidad</div>
-            <div class="card-value">{tot_occ_pct:.1f}% <span style="font-size:16px;color:#64748b;">total</span></div>
-            <div class="card-sub">{prod_occ_pct:.1f}% producción · {setup_occ_pct:.1f}% cambios</div>
-        </div>
-        """, unsafe_allow_html=True)
-
-    st.write("")
-    st.markdown("#### Balance y ocupación de la capacidad instalada")
-    st.caption(f"Régimen estándar Lunes a Sábado: {avail_shifts_cal} turnos disponibles ({avail_mins_cal:,.0f} minutos). Distribución calculada con tasas reales de empaque.")
-
-    # Capacity Occupancy Stacked Bar Chart
-    cap_data = pd.DataFrame([
-        {"Categoría": f"Capacidad L-S ({avail_shifts_cal} turnos)", "Segmento": "Producción neta", "Turnos": prod_turns_calc, "Minutos": net_prod_mins, "Porcentaje": prod_occ_pct, "Color": "#1b7a4b"},
-        {"Categoría": f"Capacidad L-S ({avail_shifts_cal} turnos)", "Segmento": "Cambios de formato", "Turnos": setup_turns_calc, "Minutos": opt_setup_mins, "Porcentaje": setup_occ_pct, "Color": "#d97706"},
-        {"Categoría": f"Capacidad L-S ({avail_shifts_cal} turnos)", "Segmento": "Capacidad libre", "Turnos": free_turns_calc, "Minutos": free_turns_calc * 480.0, "Porcentaje": free_occ_pct, "Color": "#94a3b8"},
-    ])
-
-    fig_cap = go.Figure()
-    for _, row in cap_data.iterrows():
-        fig_cap.add_trace(go.Bar(
-            y=[row["Categoría"]],
-            x=[row["Porcentaje"]],
-            name=row["Segmento"],
-            orientation="h",
-            marker=dict(color=row["Color"]),
-            textposition="none",
-            hovertemplate=(
-                f"<b>{row['Segmento']}</b><br>"
-                f"Participación: <b>{row['Porcentaje']:.1f}%</b><br>"
-                f"Turnos equivalentes: <b>{row['Turnos']:.2f} turnos</b><br>"
-                f"Tiempo de máquina: <b>{pretty(row['Minutos'], 0)} min</b> ({(row['Minutos']/60.0):.1f} h)"
-                "<extra></extra>"
-            )
-        ))
-    fig_cap.update_layout(
-        barmode="stack",
-        height=100,
-        margin=dict(l=10, r=10, t=28, b=10),
-        xaxis=dict(showgrid=False, range=[0, 100], ticksuffix="%", title=""),
-        yaxis=dict(showticklabels=False),
-        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1, font=dict(size=12, color="#0f172a")),
-        paper_bgcolor="rgba(0,0,0,0)",
-        plot_bgcolor="#ffffff",
-    )
-    st.plotly_chart(fig_cap, width="stretch")
-
-    # High-legibility metric chips below the horizontal capacity bar
-    st.markdown(f"""
-    <div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(260px, 1fr));gap:14px;margin-top:10px;margin-bottom:24px;">
-        <div style="background:white;border:1px solid #e2e8f0;border-left:5px solid #1b7a4b;border-radius:10px;padding:14px 18px;box-shadow:0 1px 3px rgba(0,0,0,0.03);">
-            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px;">
-                <span style="font-size:13px;font-weight:700;color:#166534;letter-spacing:0.02em;">🟢 PRODUCCIÓN NETA</span>
-                <span style="font-size:20px;font-weight:800;color:#1b7a4b;">{prod_occ_pct:.1f}%</span>
+    if not eff_prods:
+        # Onboarding Assistant for New Clean Scenario
+        st.markdown(clean_html(f"""
+        <div style="background:{'#1e293b' if is_dark else '#ffffff'};border:1px solid {'#334155' if is_dark else '#e2e8f0'};border-radius:12px;padding:22px;margin-bottom:20px;box-shadow:0 1px 3px rgba(0,0,0,0.03);">
+            <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;">
+                <span style="font-size:22px;">🚀</span>
+                <h3 style="margin:0;font-size:18px;font-weight:700;color:{'#f8fafc' if is_dark else '#0f172a'};">
+                    Configuración Inicial del Nuevo Escenario
+                </h3>
             </div>
-            <div style="font-size:14px;font-weight:600;color:#0f172a;margin-bottom:3px;">
-                {prod_turns_calc:.2f} turnos <span style="font-size:13px;font-weight:400;color:#64748b;">({pretty(net_prod_mins, 0)} min · {net_prod_mins/60.0:.1f} h)</span>
-            </div>
-            <div style="font-size:12px;color:#64748b;">
-                Tiempo efectivo de envasado a velocidad de máquina
-            </div>
+            <p style="margin:0 0 16px 0;font-size:14px;color:{'#94a3b8' if is_dark else '#64748b'};">
+                Este escenario no tiene referencias asignadas. Para comenzar y obtener las métricas de tu línea, elige una de las siguientes opciones:
+            </p>
         </div>
+        """), unsafe_allow_html=True)
 
-        <div style="background:white;border:1px solid #fed7aa;border-left:5px solid #d97706;border-radius:10px;padding:14px 18px;box-shadow:0 1px 3px rgba(0,0,0,0.03);">
-            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px;">
-                <span style="font-size:13px;font-weight:700;color:#9a3412;letter-spacing:0.02em;">🟠 CAMBIOS DE FORMATO</span>
-                <div style="display:flex;align-items:center;gap:6px;">
-                    <span style="font-size:11px;background:#ffedd5;color:#c2410c;padding:2px 6px;border-radius:4px;font-weight:700;">¡Ahora 100% legible!</span>
-                    <span style="font-size:20px;font-weight:800;color:#d97706;">{setup_occ_pct:.1f}%</span>
+        ob1, ob2, ob3 = st.columns(3)
+        with ob1:
+            st.markdown("##### 1. Cargar 3 Archivos Excel")
+            st.caption("Libros de Asignación, Necesidades de fabricación y Matriz de cambios.")
+            ob_assign = st.file_uploader("1. Asignación de productos", type=["xlsx"], key=key("ob_assign"))
+            ob_dem = st.file_uploader("2. Necesidad de fabricación", type=["xlsx"], key=key("ob_dem"))
+            ob_mat = st.file_uploader("3. Matriz de cambios", type=["xlsx"], key=key("ob_mat"))
+            if st.button("Cargar los 3 archivos Excel", disabled=not all([ob_assign, ob_dem, ob_mat]), key=key("btn_ob_excel"), type="primary", use_container_width=True):
+                try:
+                    loaded = import_three(ob_assign.getvalue(), ob_dem.getvalue(), ob_mat.getvalue(), cfg)
+                    issues = validate(loaded)
+                    if issues:
+                        st.error("\n\n".join(issues))
+                    else:
+                        replace_scenario(loaded)
+                except Exception as exc:
+                    st.error(f"Error al importar archivos: {exc}")
+
+        with ob2:
+            st.markdown("##### 2. Restaurar Escenario JSON")
+            st.caption("Carga un archivo .json guardado previamente con todos los datos.")
+            ob_json = st.file_uploader("Escenario guardado (.json)", type=["json"], key=key("ob_json"))
+            if st.button("Restaurar escenario JSON", disabled=ob_json is None, key=key("btn_ob_json"), use_container_width=True):
+                try:
+                    loaded = json.loads(ob_json.getvalue())
+                    issues = validate(loaded)
+                    if issues or loaded.get("version") != 1:
+                        st.error("\n\n".join(issues) or "Versión de escenario no compatible.")
+                    else:
+                        replace_scenario(loaded)
+                except Exception as exc:
+                    st.error(f"Error al restaurar JSON: {exc}")
+
+        with ob3:
+            st.markdown("##### 3. Ingreso Manual")
+            st.caption("Define productos, necesidades y matriz de cambios directamente en el editor dinámico.")
+            st.write("")
+            if st.button("Ir a 📦 1 · Productos y Matriz →", key=key("btn_ob_manual"), use_container_width=True):
+                go_step(1)
+                st.rerun()
+
+        st.info("💡 Una vez cargados los datos y calculado el plan, aquí podrás ver las tarjetas de demanda total, tiempo óptimo de cambios, balance de capacidad L-S vs D-D y análisis ABC / Pareto.")
+
+    else:
+        # Executive Metric Cards
+        m1, m2, m3, m4 = st.columns(4)
+        with m1:
+            card_m1_sub = "100% de cumplimiento · 0 pendientes" if (result and not result.get("missing")) else (f"{pretty(result.get('missing', 0))} pendientes" if result else "Pendiente de optimizar")
+            st.markdown(clean_html(f"""
+            <div class="exec-card">
+                <div class="card-title">Demanda Programada</div>
+                <div class="card-value">{pretty(total_dem)} <span style="font-size:16px;color:#64748b;">ctn</span></div>
+                <div class="card-sub">{card_m1_sub}</div>
+            </div>
+            """), unsafe_allow_html=True)
+
+        with m2:
+            card_m2_sub = '<span class="optimo-badge">★ Óptimo Demostrado</span>' if (result and result.get("optimization", {}).get("status") == "OPTIMAL" and opt_setup_mins > 0) else '<span class="optimo-badge">★ Factible</span>'
+            st.markdown(clean_html(f"""
+            <div class="exec-card">
+                <div class="card-title">Tiempo de Cambios</div>
+                <div class="card-value">{pretty(opt_setup_mins, 0)} min <span style="font-size:16px;color:#64748b;">({opt_setup_mins/60.0:.1f} h)</span></div>
+                <div class="card-sub">{card_m2_sub}</div>
+            </div>
+            """), unsafe_allow_html=True)
+
+        cierre_card_sub = "Según capacidad y calendario"
+        if result and result.get("finish"):
+            try:
+                finish_dt = datetime.fromisoformat(str(result["finish"]))
+                spanish_months = {
+                    1: "enero", 2: "febrero", 3: "marzo", 4: "abril", 5: "mayo", 6: "junio",
+                    7: "julio", 8: "agosto", 9: "septiembre", 10: "octubre", 11: "noviembre", 12: "diciembre"
+                }
+                month_name = spanish_months.get(finish_dt.month, finish_dt.strftime("%B"))
+                prefix = "Cierre anticipado" if free_shifts_real > 0 else "Cierre estimado"
+                cierre_card_sub = f"{prefix}: <strong>{finish_dt.day} de {month_name}</strong>"
+            except Exception:
+                cierre_card_sub = f"Cierre estimado: <strong>{str(result['finish'])[:10]}</strong>"
+
+        with m3:
+            st.markdown(clean_html(f"""
+            <div class="exec-card">
+                <div class="card-title">Turnos Utilizados</div>
+                <div class="card-value">{used_shifts_real} / {avail_shifts_cal} <span style="font-size:16px;color:#16a34a;">({free_shifts_real} libres)</span></div>
+                <div class="card-sub">{cierre_card_sub}</div>
+            </div>
+            """), unsafe_allow_html=True)
+
+        with m4:
+            st.markdown(clean_html(f"""
+            <div class="exec-card">
+                <div class="card-title">Ocupación de Capacidad</div>
+                <div class="card-value">{tot_occ_pct:.1f}% <span style="font-size:16px;color:#64748b;">total</span></div>
+                <div class="card-sub">{prod_occ_pct:.1f}% producción · {setup_occ_pct:.1f}% cambios</div>
+            </div>
+            """), unsafe_allow_html=True)
+
+        st.write("")
+        st.markdown("#### Balance y ocupación de la capacidad instalada")
+        st.caption(f"Régimen estándar Lunes a Sábado: {avail_shifts_cal} turnos disponibles ({avail_mins_cal:,.0f} minutos). Distribución calculada con tasas reales de empaque.")
+
+        # Capacity Occupancy Stacked Bar Chart
+        cap_data = pd.DataFrame([
+            {"Categoría": f"Capacidad L-S ({avail_shifts_cal} turnos)", "Segmento": "Producción neta", "Turnos": prod_turns_calc, "Minutos": net_prod_mins, "Porcentaje": prod_occ_pct, "Color": "#1b7a4b"},
+            {"Categoría": f"Capacidad L-S ({avail_shifts_cal} turnos)", "Segmento": "Cambios de formato", "Turnos": setup_turns_calc, "Minutos": opt_setup_mins, "Porcentaje": setup_occ_pct, "Color": "#d97706"},
+            {"Categoría": f"Capacidad L-S ({avail_shifts_cal} turnos)", "Segmento": "Capacidad libre", "Turnos": free_turns_calc, "Minutos": free_turns_calc * 480.0, "Porcentaje": free_occ_pct, "Color": "#94a3b8"},
+        ])
+
+        fig_cap = go.Figure()
+        for _, row in cap_data.iterrows():
+            fig_cap.add_trace(go.Bar(
+                y=[row["Categoría"]],
+                x=[row["Porcentaje"]],
+                name=row["Segmento"],
+                orientation="h",
+                marker=dict(color=row["Color"]),
+                textposition="none",
+                hovertemplate=(
+                    f"<b>{row['Segmento']}</b><br>"
+                    f"Participación: <b>{row['Porcentaje']:.1f}%</b><br>"
+                    f"Turnos equivalentes: <b>{row['Turnos']:.2f} turnos</b><br>"
+                    f"Tiempo de máquina: <b>{pretty(row['Minutos'], 0)} min</b> ({(row['Minutos']/60.0):.1f} h)"
+                    "<extra></extra>"
+                )
+            ))
+        fig_cap.update_layout(
+            barmode="stack",
+            height=100,
+            margin=dict(l=10, r=10, t=28, b=10),
+            xaxis=dict(showgrid=False, range=[0, 100], ticksuffix="%", title=""),
+            yaxis=dict(showticklabels=False),
+            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1, font=dict(size=12, color="#0f172a")),
+            paper_bgcolor="rgba(0,0,0,0)",
+            plot_bgcolor="#ffffff",
+        )
+        st.plotly_chart(fig_cap, width="stretch")
+
+        # High-legibility metric chips below the horizontal capacity bar
+        st.markdown(clean_html(f"""
+        <div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(260px, 1fr));gap:14px;margin-top:10px;margin-bottom:24px;">
+            <div style="background:{'#1e293b' if is_dark else 'white'};border:1px solid {'#334155' if is_dark else '#e2e8f0'};border-left:5px solid #1b7a4b;border-radius:10px;padding:14px 18px;box-shadow:0 1px 3px rgba(0,0,0,0.03);">
+                <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px;">
+                    <span style="font-size:13px;font-weight:700;color:#166534;letter-spacing:0.02em;">🟢 PRODUCCIÓN NETA</span>
+                    <span style="font-size:20px;font-weight:800;color:#1b7a4b;">{prod_occ_pct:.1f}%</span>
+                </div>
+                <div style="font-size:14px;font-weight:600;color:{'#f8fafc' if is_dark else '#0f172a'};margin-bottom:3px;">
+                    {prod_turns_calc:.2f} turnos <span style="font-size:13px;font-weight:400;color:#64748b;">({pretty(net_prod_mins, 0)} min · {net_prod_mins/60.0:.1f} h)</span>
+                </div>
+                <div style="font-size:12px;color:#64748b;">
+                    Tiempo efectivo de envasado a velocidad de máquina
                 </div>
             </div>
-            <div style="font-size:14px;font-weight:600;color:#0f172a;margin-bottom:3px;">
-                {setup_turns_calc:.2f} turnos <span style="font-size:13px;font-weight:400;color:#64748b;">({pretty(opt_setup_mins, 0)} min · {opt_setup_mins/60.0:.1f} h)</span>
+
+            <div style="background:{'#1e293b' if is_dark else 'white'};border:1px solid {'#7c2d12' if is_dark else '#fed7aa'};border-left:5px solid #d97706;border-radius:10px;padding:14px 18px;box-shadow:0 1px 3px rgba(0,0,0,0.03);">
+                <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px;">
+                    <span style="font-size:13px;font-weight:700;color:#d97706;letter-spacing:0.02em;">🟠 CAMBIOS DE FORMATO</span>
+                    <span style="font-size:20px;font-weight:800;color:#d97706;">{setup_occ_pct:.1f}%</span>
+                </div>
+                <div style="font-size:14px;font-weight:600;color:{'#f8fafc' if is_dark else '#0f172a'};margin-bottom:3px;">
+                    {setup_turns_calc:.2f} turnos <span style="font-size:13px;font-weight:400;color:#64748b;">({pretty(opt_setup_mins, 0)} min · {opt_setup_mins/60.0:.1f} h)</span>
+                </div>
+                <div style="font-size:12px;color:#64748b;">
+                    Tiempos de setup minimizados por el optimizador
+                </div>
             </div>
-            <div style="font-size:12px;color:#64748b;">
-                Tiempos de setup minimizados por el optimizador (desacoplado de la franja estrecha)
+
+            <div style="background:{'#1e293b' if is_dark else 'white'};border:1px solid {'#334155' if is_dark else '#e2e8f0'};border-left:5px solid #64748b;border-radius:10px;padding:14px 18px;box-shadow:0 1px 3px rgba(0,0,0,0.03);">
+                <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px;">
+                    <span style="font-size:13px;font-weight:700;color:{'#cbd5e1' if is_dark else '#334155'};letter-spacing:0.02em;">⚪ CAPACIDAD LIBRE (HOLGURA)</span>
+                    <span style="font-size:20px;font-weight:800;color:#64748b;">{free_occ_pct:.1f}%</span>
+                </div>
+                <div style="font-size:14px;font-weight:600;color:{'#f8fafc' if is_dark else '#0f172a'};margin-bottom:3px;">
+                    {free_turns_calc:.2f} turnos <span style="font-size:13px;font-weight:400;color:#64748b;">({pretty(free_turns_calc * 480.0, 0)} min · {(free_turns_calc * 480.0)/60.0:.1f} h)</span>
+                </div>
+                <div style="font-size:12px;color:#64748b;">
+                    Colchón operativo para absorber paradas o contingencias
+                </div>
             </div>
         </div>
+        """), unsafe_allow_html=True)
 
-        <div style="background:white;border:1px solid #e2e8f0;border-left:5px solid #64748b;border-radius:10px;padding:14px 18px;box-shadow:0 1px 3px rgba(0,0,0,0.03);">
-            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px;">
-                <span style="font-size:13px;font-weight:700;color:#334155;letter-spacing:0.02em;">⚪ CAPACIDAD LIBRE (HOLGURA)</span>
-                <span style="font-size:20px;font-weight:800;color:#475569;">{free_occ_pct:.1f}%</span>
-            </div>
-            <div style="font-size:14px;font-weight:600;color:#0f172a;margin-bottom:3px;">
-                {free_turns_calc:.2f} turnos <span style="font-size:13px;font-weight:400;color:#64748b;">({pretty(free_turns_calc * 480.0, 0)} min · {(free_turns_calc * 480.0)/60.0:.1f} h)</span>
-            </div>
-            <div style="font-size:12px;color:#64748b;">
-                Colchón operativo para absorber paradas o contingencias
-            </div>
-        </div>
-    </div>
-    """, unsafe_allow_html=True)
+        st.write("")
+        st.markdown("#### Análisis ABC / Pareto de carga de fabricación")
+        st.caption("La carga se mide en horas y turnos de máquina, no en cartones brutos: los productos más lentos exigen mayor capacidad.")
 
-    st.write("")
-    st.markdown("#### Análisis ABC / Pareto de carga de fabricación")
-    st.caption("La carga se mide en horas y turnos de máquina, no en cartones brutos: los productos más lentos exigen mayor capacidad.")
+        pareto_df = calculate_pareto(source)
+        insights = get_pareto_key_insights(pareto_df)
 
-    pareto_df = calculate_pareto(source)
-    insights = get_pareto_key_insights(pareto_df)
+        if not pareto_df.empty:
+            top_skus_str = ", ".join(insights.get("top_3_skus", []))
+            num_top = len(insights.get("top_3_skus", []))
+            sku_label = f"**{num_top} SKUs**" if num_top > 1 else "**1 SKU**"
+            sku_detail = f" ({top_skus_str})" if top_skus_str else ""
+            top_shifts = pareto_df.head(3)["shifts_required"].sum()
+            total_shifts = pareto_df["shifts_required"].sum()
+            st.info(f"""
+            🎯 **Concentración Crítica de Carga:** {sku_label}{sku_detail} concentran el **{insights['top_3_pct']}% de la carga del mes** ({top_shifts:.1f} de los {total_shifts:.1f} turnos totales de producción). Proteger su continuidad y mitigar paradas en estas referencias es prioritario para asegurar el cumplimiento global.
+            """)
 
-    if not pareto_df.empty:
-        top_skus_str = ", ".join(insights.get("top_3_skus", []))
-        num_top = len(insights.get("top_3_skus", []))
-        sku_label = f"**{num_top} SKUs**" if num_top > 1 else "**1 SKU**"
-        sku_detail = f" ({top_skus_str})" if top_skus_str else ""
-        top_shifts = pareto_df.head(3)["shifts_required"].sum()
-        total_shifts = pareto_df["shifts_required"].sum()
-        st.info(f"""
-        🎯 **Concentración Crítica de Carga:** {sku_label}{sku_detail} concentran el **{insights['top_3_pct']}% de la carga del mes** ({top_shifts:.1f} de los {total_shifts:.1f} turnos totales de producción). Proteger su continuidad y mitigar paradas en estas referencias es prioritario para asegurar el cumplimiento global.
-        """)
+            # Pareto Dual-Axis Plotly Chart
+            fig_p = go.Figure()
+            colors = ["#2563eb" if z == "A" else ("#0284c7" if z == "B" else "#94a3b8") for z in pareto_df["zone"]]
 
-    # Pareto Dual-Axis Plotly Chart
-    fig_p = go.Figure()
-    colors = ["#2563eb" if z == "A" else ("#0284c7" if z == "B" else "#94a3b8") for z in pareto_df["zone"]]
+            fig_p.add_trace(go.Bar(
+                x=[f"{r['id']}<br>{r['description'][:14]}" for _, r in pareto_df.iterrows()],
+                y=pareto_df["shifts_required"],
+                name="Turnos Requeridos",
+                marker=dict(color=colors),
+                customdata=pareto_df["demand"].apply(lambda d: f"{d:,.0f}"),
+                hovertemplate="<b>%{x}</b><br>Turnos requeridos: %{y:.2f}<br>Cartones: %{customdata}<extra></extra>"
+            ))
 
-    fig_p.add_trace(go.Bar(
-        x=[f"{r['id']}<br>{r['description'][:14]}" for _, r in pareto_df.iterrows()],
-        y=pareto_df["shifts_required"],
-        name="Turnos Requeridos",
-        marker=dict(color=colors),
-        customdata=pareto_df["demand"].apply(lambda d: f"{d:,.0f}"),
-        hovertemplate="<b>%{x}</b><br>Turnos requeridos: %{y:.2f}<br>Cartones: %{customdata}<extra></extra>"
-    ))
+            fig_p.add_trace(go.Scatter(
+                x=[f"{r['id']}<br>{r['description'][:14]}" for _, r in pareto_df.iterrows()],
+                y=pareto_df["cum_pct"],
+                name="% Carga Acumulada",
+                yaxis="y2",
+                mode="lines+markers",
+                line=dict(color="#dc2626", width=2.5),
+                marker=dict(size=6, color="#dc2626"),
+                hovertemplate="Carga acumulada: %{y:.1f}%<extra></extra>"
+            ))
 
-    fig_p.add_trace(go.Scatter(
-        x=[f"{r['id']}<br>{r['description'][:14]}" for _, r in pareto_df.iterrows()],
-        y=pareto_df["cum_pct"],
-        name="% Carga Acumulada",
-        yaxis="y2",
-        mode="lines+markers",
-        line=dict(color="#dc2626", width=2.5),
-        marker=dict(size=6, color="#dc2626"),
-        hovertemplate="Carga acumulada: %{y:.1f}%<extra></extra>"
-    ))
+            fig_p.add_hline(y=80, line_dash="dash", line_color="#ef4444", yref="y2", annotation_text="Corte Pareto 80%", annotation_position="top right")
 
-    # Reference 80% line
-    fig_p.add_hline(y=80, line_dash="dash", line_color="#ef4444", yref="y2", annotation_text="Corte Pareto 80%", annotation_position="top right")
+            fig_p.update_layout(
+                height=380,
+                margin=dict(l=10, r=20, t=20, b=50),
+                legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0),
+                paper_bgcolor="rgba(0,0,0,0)",
+                plot_bgcolor="#ffffff",
+                xaxis=dict(tickangle=-40),
+                yaxis=dict(title="Turnos de envasado", showgrid=True, gridcolor="#f1f5f9"),
+                yaxis2=dict(title="% Carga acumulada", overlaying="y", side="right", range=[0, 105], ticksuffix="%")
+            )
+            st.plotly_chart(fig_p, width="stretch")
 
-    fig_p.update_layout(
-        height=380,
-        margin=dict(l=10, r=20, t=20, b=50),
-        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0),
-        paper_bgcolor="rgba(0,0,0,0)",
-        plot_bgcolor="#ffffff",
-        xaxis=dict(tickangle=-40),
-        yaxis=dict(title="Turnos de envasado", showgrid=True, gridcolor="#f1f5f9"),
-        yaxis2=dict(title="% Carga acumulada", overlaying="y", side="right", range=[0, 105], ticksuffix="%")
-    )
-    st.plotly_chart(fig_p, width="stretch")
-
-    with st.expander("Ver tabla detallada de clasificación ABC por SKU"):
-        display_pareto = pareto_df.copy()
-        display_pareto["demand"] = display_pareto["demand"].map(lambda x: f"{x:,.0f}")
-        display_pareto["production_minutes"] = display_pareto["production_minutes"].map(lambda x: f"{x:,.1f}")
-        display_pareto["shifts_required"] = display_pareto["shifts_required"].map(lambda x: f"{x:,.2f}")
-        display_pareto["pct_load"] = display_pareto["pct_load"].map(lambda x: f"{x:.1f}%")
-        display_pareto["cum_pct"] = display_pareto["cum_pct"].map(lambda x: f"{x:.1f}%")
-        st.dataframe(
-            display_pareto.rename(columns={
-                "id": "Código",
-                "description": "Producto",
-                "demand": "Necesidad",
-                "rate": "Cartones/8h",
-                "production_minutes": "Minutos",
-                "shifts_required": "Turnos",
-                "pct_load": "% Carga",
-                "cum_pct": "% Acumulado",
-                "zone": "Zona ABC"
-            }),
-            hide_index=True,
-            width="stretch"
-        )
+            with st.expander("Ver tabla detallada de clasificación ABC por SKU"):
+                display_pareto = pareto_df.copy()
+                display_pareto["demand"] = display_pareto["demand"].map(lambda x: f"{x:,.0f}")
+                display_pareto["production_minutes"] = display_pareto["production_minutes"].map(lambda x: f"{x:,.1f}")
+                display_pareto["shifts_required"] = display_pareto["shifts_required"].map(lambda x: f"{x:,.2f}")
+                display_pareto["pct_load"] = display_pareto["pct_load"].map(lambda x: f"{x:.1f}%")
+                display_pareto["cum_pct"] = display_pareto["cum_pct"].map(lambda x: f"{x:.1f}%")
+                st.dataframe(
+                    display_pareto.rename(columns={
+                        "id": "Código",
+                        "description": "Producto",
+                        "demand": "Necesidad",
+                        "rate": "Cartones/8h",
+                        "production_minutes": "Minutos",
+                        "shifts_required": "Turnos",
+                        "pct_load": "% Carga",
+                        "cum_pct": "% Acumulado",
+                        "zone": "Zona ABC"
+                    }),
+                    hide_index=True,
+                    width="stretch"
+                )
 
 
 # ---------------------------------------------------------------------------
@@ -703,7 +821,8 @@ with tabs[1]:
             except Exception as exc:
                 st.error(f"No se pudo recuperar: {exc}")
 
-    if st.button("Restablecer caso Volpak 4"):
+    btn_reset_label = "Restablecer caso base Volpak 4" if is_volpak else "Limpiar escenario en blanco"
+    if st.button(btn_reset_label, key=key("btn_reset_scenario")):
         replace_scenario(demo() if is_volpak else copy.deepcopy(BLANK_SCENARIO))
 
     st.markdown("#### Productos y necesidades")
@@ -1026,136 +1145,140 @@ with tabs[3]:
 with tabs[4]:
     st.subheader("Constructor de Secuencia — Reta al Optimizador")
     families = detect_families(source)
-    block_dist = get_block_matrix(source, families)
-    fam_by_id = {f["id"]: f for f in families}
-    valid_fam_ids = {f["id"] for f in families}
-    
-    # Filter any stale IDs that don't exist in current scenario
-    st.session_state.game_sequence = [fid for fid in st.session_state.game_sequence if fid in valid_fam_ids]
-
-    # Calculate theoretical optimum sequence and bound for families
-    optimal_seq, optimal_cost = find_optimal_family_sequence(families, block_dist)
-
-    known_opt = ["3533", "3643", "15564", "5998", "6743", "6639", "3278", "3757"]
-    is_volpak4 = all(k in valid_fam_ids for k in known_opt) and len(known_opt) == len(families)
-    
-    opt_bound_display = 840 if (is_volpak4 or round(optimal_cost) == 840) else int(round(optimal_cost))
-    btn_opt_label = f"★ Cargar secuencia óptima ({opt_bound_display} min)"
-
-    st.markdown(f"""
-    El algoritmo matemático demostró que la secuencia óptima requiere una cota de **{opt_bound_display} minutos ({opt_bound_display/60.0:.1f} h)** de cambio de formato.
-    ¿Puedes igualarlo o construir una secuencia más eficiente? Selecciona las **{len(families)} familias tecnológicas** en el orden en que las ingresarías a la línea{' Volpak 4' if is_volpak4 else ''}.
-    """)
-
-    # Control buttons
-    btn_c1, btn_c2, btn_c3, btn_c4 = st.columns(4)
-    if btn_c1.button("🔄 Reiniciar secuencia"):
-        st.session_state.game_sequence = []
-        st.rerun()
-
-    if btn_c2.button(btn_opt_label, key="btn_game_load_optimal"):
-        st.session_state.game_sequence = list(optimal_seq)
-        st.rerun()
-
-    if btn_c3.button("🎲 Orden aleatorio"):
-        import random
-        all_fams = [f["id"] for f in families]
-        random.shuffle(all_fams)
-        st.session_state.game_sequence = all_fams
-        st.rerun()
-
-    if btn_c4.button("⬅️ Deshacer último") and st.session_state.game_sequence:
-        st.session_state.game_sequence.pop()
-        st.rerun()
-
-    # Family picker
-    chosen_ids = st.session_state.game_sequence
-    available_fams = [f for f in families if f["id"] not in chosen_ids]
-
-    # Visual representation of currently built sequence
-    st.write("")
-    if chosen_ids:
-        st.markdown("##### Secuencia construida:")
-        chips_html = []
-        for step_idx, fid in enumerate(chosen_ids, 1):
-            fname = fam_by_id.get(fid, {}).get("name", fid)
-            f_skus = len(fam_by_id.get(fid, {}).get("members", []))
-            chips_html.append(f'<span class="family-chip"><strong>#{step_idx}</strong> {html.escape(fname)} <span style="color:#64748b;font-size:11px;">({f_skus} SKU)</span></span>')
-        st.markdown('<div style="margin-bottom:12px;">' + ' <span style="color:#94a3b8;font-weight:700;">→</span> '.join(chips_html) + '</div>', unsafe_allow_html=True)
+    if len(families) < 2:
+        st.info("ℹ️ El constructor interactivo de secuencias requiere al menos 2 familias de productos definidas en la matriz de cambios. Carga tus datos o consulta el **Caso de Estudio Volpak 4** (que cuenta con 8 familias tecnológicas) para jugar a retar al optimizador.")
     else:
-        st.info("Secuencia vacía. Haz clic en una de las familias abajo para definir el primer bloque de tu secuencia.")
+        block_dist = get_block_matrix(source, families)
+        fam_by_id = {f["id"]: f for f in families}
+        valid_fam_ids = {f["id"] for f in families}
+    
+        # Filter any stale IDs that don't exist in current scenario
+        st.session_state.game_sequence = [fid for fid in st.session_state.game_sequence if fid in valid_fam_ids]
 
-    if not families:
-        st.info("No hay familias tecnológicas definidas en este escenario.")
-    elif available_fams:
-        st.markdown(f"**Paso {len(chosen_ids) + 1} de {len(families)}:** Haz clic para agregar la siguiente familia:")
-        cols = st.columns(min(len(available_fams), 4))
-        for idx, fam in enumerate(available_fams):
-            col = cols[idx % len(cols)]
-            label = f"➕ {fam['name']}\n({len(fam['members'])} SKU)"
-            if col.button(label, key=key(f"pick_fam_{fam['id']}")):
-                st.session_state.game_sequence.append(fam["id"])
-                st.rerun()
-    else:
-        st.success(f"✓ ¡Has seleccionado las {len(families)} familias tecnológicas!")
+        # Calculate theoretical optimum sequence and bound for families
+        optimal_seq, optimal_cost = find_optimal_family_sequence(families, block_dist)
 
-    # Live Evaluation Scoreboard
-    eval_res = evaluate_family_sequence(chosen_ids, families, block_dist, target_optimal_minutes=float(opt_bound_display))
+        known_opt = ["3533", "3643", "15564", "5998", "6743", "6639", "3278", "3757"]
+        is_volpak4 = all(k in valid_fam_ids for k in known_opt) and len(known_opt) == len(families)
+    
+        opt_bound_display = 840 if (is_volpak4 or round(optimal_cost) == 840) else int(round(optimal_cost))
+        btn_opt_label = f"★ Cargar secuencia óptima ({opt_bound_display} min)"
 
-    st.write("")
-    st.markdown('<div class="game-scoreboard">', unsafe_allow_html=True)
-    sc1, sc2, sc3 = st.columns(3)
-    with sc1:
-        st.metric("Familias en la Secuencia", f"{len(chosen_ids)} / {len(families)}")
-    with sc2:
-        if eval_res["is_complete"]:
-            d_min_label = f"{eval_res['diff_minutes']:+.0f} min vs óptimo"
-        elif len(chosen_ids) > 1:
-            d_min_label = f"+{eval_res['diff_minutes']:.0f} min penalización" if eval_res['diff_minutes'] > 0 else "0 min penalización"
-        else:
-            d_min_label = None
-        st.metric("Minutos de Cambio Acumulados", f"{eval_res['total_minutes']:.0f} min", delta=d_min_label, delta_color="inverse")
-    with sc3:
-        if eval_res["is_complete"]:
-            d_hr_label = f"{eval_res['diff_hours']:+.1f} h vs óptimo"
-        elif len(chosen_ids) > 1:
-            d_hr_label = f"+{eval_res['diff_hours']:.1f} h penalización" if eval_res['diff_hours'] > 0 else "0 h penalización"
-        else:
-            d_hr_label = None
-        st.metric("Horas de Cambio", f"{eval_res['total_hours']:.1f} h", delta=d_hr_label, delta_color="inverse")
-
-    if eval_res.get("is_optimal", False):
         st.markdown(f"""
-        <div style="background:#dcfce7;border:1px solid #86efac;color:#166534;padding:14px 18px;border-radius:8px;margin-top:12px;">
-            <h4 style="margin:0;color:#166534;">🎉 ¡FELICITACIONES! ¡ALCANZASTE EL ÓPTIMO DEMOSTRADO!</h4>
-            <p style="margin:4px 0 0 0;font-size:14px;">
-                Lograste exactamente <strong>{eval_res['total_minutes']:.0f} minutos ({eval_res['total_hours']:.1f} h)</strong> con {len(eval_res['transitions'])} transiciones limpias de 120 minutos, sin incurrir en ninguna incompatibilidad tecnológica de 180 min.
-            </p>
-        </div>
-        """, unsafe_allow_html=True)
-    elif eval_res.get("is_complete", False):
-        st.markdown(f"""
-        <div style="background:#fef2f2;border:1px solid #fca5a5;color:#991b1b;padding:14px 18px;border-radius:8px;margin-top:12px;">
-            <h4 style="margin:0;color:#991b1b;">⚠️ Secuencia Completa con Penalización: +{eval_res['diff_minutes']:.0f} min (+{eval_res['diff_hours']:.1f} h perdidas)</h4>
-            <p style="margin:4px 0 0 0;font-size:14px;">
-                Tu secuencia cuesta <strong>{eval_res['total_minutes']:.0f} min</strong> vs los <strong>{eval_res['target_optimal_minutes']:.0f} min óptimos</strong>. Algunos saltos entre familias incompatibles generaron cambios de 180 min en vez de 120 min.
-            </p>
-        </div>
-        """, unsafe_allow_html=True)
+        El algoritmo matemático demostró que la secuencia óptima requiere una cota de **{opt_bound_display} minutos ({opt_bound_display/60.0:.1f} h)** de cambio de formato.
+        ¿Puedes igualarlo o construir una secuencia más eficiente? Selecciona las **{len(families)} familias tecnológicas** en el orden en que las ingresarías a la línea{' Volpak 4' if is_volpak4 else ''}.
+        """)
 
-    st.markdown('</div>', unsafe_allow_html=True)
+        # Control buttons
+        btn_c1, btn_c2, btn_c3, btn_c4 = st.columns(4)
+        if btn_c1.button("🔄 Reiniciar secuencia"):
+            st.session_state.game_sequence = []
+            st.rerun()
 
-    # Step by step jump log
-    if eval_res["transitions"]:
-        st.markdown("#### Detalle paso a paso de los cambios en tu secuencia")
-        t_df = pd.DataFrame(eval_res["transitions"]).rename(columns={
-            "step": "Salto #",
-            "from_name": "Familia Saliente",
-            "to_name": "Familia Entrante",
-            "cost_minutes": "Tiempo de cambio (min)",
-            "is_incompatible": "Incompatibilidad (180 min)"
-        })
-        st.dataframe(t_df[["Salto #", "Familia Saliente", "Familia Entrante", "Tiempo de cambio (min)", "Incompatibilidad (180 min)"]], hide_index=True, width="stretch")
+        if btn_c2.button(btn_opt_label, key="btn_game_load_optimal"):
+            st.session_state.game_sequence = list(optimal_seq)
+            st.rerun()
+
+        if btn_c3.button("🎲 Orden aleatorio"):
+            import random
+            all_fams = [f["id"] for f in families]
+            random.shuffle(all_fams)
+            st.session_state.game_sequence = all_fams
+            st.rerun()
+
+        if btn_c4.button("⬅️ Deshacer último") and st.session_state.game_sequence:
+            st.session_state.game_sequence.pop()
+            st.rerun()
+
+        # Family picker
+        chosen_ids = st.session_state.game_sequence
+        available_fams = [f for f in families if f["id"] not in chosen_ids]
+
+        # Visual representation of currently built sequence
+        st.write("")
+        if chosen_ids:
+            st.markdown("##### Secuencia construida:")
+            chips_html = []
+            for step_idx, fid in enumerate(chosen_ids, 1):
+                fname = fam_by_id.get(fid, {}).get("name", fid)
+                f_skus = len(fam_by_id.get(fid, {}).get("members", []))
+                chips_html.append(f'<span class="family-chip"><strong>#{step_idx}</strong> {html.escape(fname)} <span style="color:#64748b;font-size:11px;">({f_skus} SKU)</span></span>')
+            st.markdown('<div style="margin-bottom:12px;">' + ' <span style="color:#94a3b8;font-weight:700;">→</span> '.join(chips_html) + '</div>', unsafe_allow_html=True)
+        else:
+            st.info("Secuencia vacía. Haz clic en una de las familias abajo para definir el primer bloque de tu secuencia.")
+
+        if not families:
+            st.info("No hay familias tecnológicas definidas en este escenario.")
+        elif available_fams:
+            st.markdown(f"**Paso {len(chosen_ids) + 1} de {len(families)}:** Haz clic para agregar la siguiente familia:")
+            cols = st.columns(min(len(available_fams), 4))
+            for idx, fam in enumerate(available_fams):
+                col = cols[idx % len(cols)]
+                label = f"➕ {fam['name']}\n({len(fam['members'])} SKU)"
+                if col.button(label, key=key(f"pick_fam_{fam['id']}")):
+                    st.session_state.game_sequence.append(fam["id"])
+                    st.rerun()
+        else:
+            st.success(f"✓ ¡Has seleccionado las {len(families)} familias tecnológicas!")
+
+        # Live Evaluation Scoreboard
+        eval_res = evaluate_family_sequence(chosen_ids, families, block_dist, target_optimal_minutes=float(opt_bound_display))
+
+        st.write("")
+        st.markdown('<div class="game-scoreboard">', unsafe_allow_html=True)
+        sc1, sc2, sc3 = st.columns(3)
+        with sc1:
+            st.metric("Familias en la Secuencia", f"{len(chosen_ids)} / {len(families)}")
+        with sc2:
+            if eval_res["is_complete"]:
+                d_min_label = f"{eval_res['diff_minutes']:+.0f} min vs óptimo"
+            elif len(chosen_ids) > 1:
+                d_min_label = f"+{eval_res['diff_minutes']:.0f} min penalización" if eval_res['diff_minutes'] > 0 else "0 min penalización"
+            else:
+                d_min_label = None
+            st.metric("Minutos de Cambio Acumulados", f"{eval_res['total_minutes']:.0f} min", delta=d_min_label, delta_color="inverse")
+        with sc3:
+            if eval_res["is_complete"]:
+                d_hr_label = f"{eval_res['diff_hours']:+.1f} h vs óptimo"
+            elif len(chosen_ids) > 1:
+                d_hr_label = f"+{eval_res['diff_hours']:.1f} h penalización" if eval_res['diff_hours'] > 0 else "0 h penalización"
+            else:
+                d_hr_label = None
+            st.metric("Horas de Cambio", f"{eval_res['total_hours']:.1f} h", delta=d_hr_label, delta_color="inverse")
+
+        if eval_res.get("is_optimal", False):
+            st.markdown(f"""
+            <div style="background:#dcfce7;border:1px solid #86efac;color:#166534;padding:14px 18px;border-radius:8px;margin-top:12px;">
+                <h4 style="margin:0;color:#166534;">🎉 ¡FELICITACIONES! ¡ALCANZASTE EL ÓPTIMO DEMOSTRADO!</h4>
+                <p style="margin:4px 0 0 0;font-size:14px;">
+                    Lograste exactamente <strong>{eval_res['total_minutes']:.0f} minutos ({eval_res['total_hours']:.1f} h)</strong> con {len(eval_res['transitions'])} transiciones limpias de 120 minutos, sin incurrir en ninguna incompatibilidad tecnológica de 180 min.
+                </p>
+            </div>
+            """, unsafe_allow_html=True)
+        elif eval_res.get("is_complete", False):
+            st.markdown(f"""
+            <div style="background:#fef2f2;border:1px solid #fca5a5;color:#991b1b;padding:14px 18px;border-radius:8px;margin-top:12px;">
+                <h4 style="margin:0;color:#991b1b;">⚠️ Secuencia Completa con Penalización: +{eval_res['diff_minutes']:.0f} min (+{eval_res['diff_hours']:.1f} h perdidas)</h4>
+                <p style="margin:4px 0 0 0;font-size:14px;">
+                    Tu secuencia cuesta <strong>{eval_res['total_minutes']:.0f} min</strong> vs los <strong>{eval_res['target_optimal_minutes']:.0f} min óptimos</strong>. Algunos saltos entre familias incompatibles generaron cambios de 180 min en vez de 120 min.
+                </p>
+            </div>
+            """, unsafe_allow_html=True)
+
+        st.markdown('</div>', unsafe_allow_html=True)
+
+        # Step by step jump log
+        if eval_res["transitions"]:
+            st.markdown("#### Detalle paso a paso de los cambios en tu secuencia")
+            t_df = pd.DataFrame(eval_res["transitions"]).rename(columns={
+                "step": "Salto #",
+                "from_name": "Familia Saliente",
+                "to_name": "Familia Entrante",
+                "cost_minutes": "Tiempo de cambio (min)",
+                "is_incompatible": "Incompatibilidad (180 min)"
+            })
+            st.dataframe(t_df[["Salto #", "Familia Saliente", "Familia Entrante", "Tiempo de cambio (min)", "Incompatibilidad (180 min)"]], hide_index=True, width="stretch")
+
 
 
 # ---------------------------------------------------------------------------
@@ -1163,98 +1286,102 @@ with tabs[4]:
 # ---------------------------------------------------------------------------
 with tabs[5]:
     st.subheader("Simulador de Sensibilidad y Capacidad en Tiempo Real")
-    st.markdown("""
-    Evalúa instantáneamente el impacto del crecimiento o caída de la demanda sobre los requerimientos de turnos y la capacidad de la planta.
-    Compara el régimen estándar **Lunes a Sábado (74 turnos)** contra el régimen extraordinario **Domingo a Domingo (90 turnos)**.
-    """)
-
     eff_sim = effective_products(source)
     base_dem = sum(p.get("demand", 0) for p in eff_sim)
-    base_net_mins = sum(p.get("demand", 0) * 480.0 / p.get("rate", 1) for p in eff_sim if p.get("rate", 0) > 0)
-    base_setup_mins = float(result.get("setup_minutes", 0.0)) if result else 0.0
-
-    delta_pct = st.slider(
-        "Variación porcentual de la demanda total (%)",
-        min_value=-20,
-        max_value=60,
-        value=0,
-        step=1,
-        format="%+d%%",
-        key=key("sim_slider")
-    )
-
-    sens = calculate_sensitivity(base_net_mins, base_setup_mins, delta_pct)
-
-    # Status callout banner
-    if sens["status"] == "CABEN_EN_LS":
-        st.markdown(f"""
-        <div style="background:#dcfce7;border:1px solid #86efac;color:#166534;padding:16px 20px;border-radius:10px;margin-bottom:16px;">
-            <h4 style="margin:0 0 4px 0;color:#166534;">🟢 {sens['status_label']}</h4>
-            <p style="margin:0;font-size:14.5px;">
-                Holgura disponible: <strong>{sens['slack_ls_shifts']:.2f} turnos libres</strong> ({sens['slack_ls_hours']:.1f} horas). La línea puede absorber la demanda con el calendario regular sin habilitar turnos dominicales.
-            </p>
-        </div>
-        """, unsafe_allow_html=True)
-    elif sens["status"] == "REQUIERE_DD":
-        st.markdown(f"""
-        <div style="background:#fef3c7;border:1px solid #fcd34d;color:#92400e;padding:16px 20px;border-radius:10px;margin-bottom:16px;">
-            <h4 style="margin:0 0 4px 0;color:#92400e;">🟡 {sens['status_label']}</h4>
-            <p style="margin:0;font-size:14.5px;">
-                Déficit sobre L-S: <strong>{abs(sens['slack_ls_shifts']):.2f} turnos excedentes</strong>. Se superó el punto de quiebre L-S (+{sens['ls_breakeven_pct']:.1f}%). Cabe habilitando domingos, con una holgura de <strong>{90 - sens['shifts_required']:.2f} turnos libres</strong> en régimen D-D.
-            </p>
-        </div>
-        """, unsafe_allow_html=True)
+    if not eff_sim or base_dem == 0:
+        st.info("ℹ️ Para simular sensibilidad de la demanda (-20% a +60%) y evaluar puntos de quiebre de capacidad (L-S vs D-D), el escenario debe contar con productos y demanda asignada. Carga tus datos o consulta el **Caso de Estudio Volpak 4**.")
     else:
-        st.markdown(f"""
-        <div style="background:#fee2e2;border:1px solid #fca5a5;color:#991b1b;padding:16px 20px;border-radius:10px;margin-bottom:16px;">
-            <h4 style="margin:0 0 4px 0;color:#991b1b;">🔴 {sens['status_label']}</h4>
-            <p style="margin:0;font-size:14.5px;">
-                Déficit insuperable en planta: <strong>{sens['deficit_shifts']:.2f} turnos faltantes</strong> sobre el tope de 90 turnos. Se superó el punto de quiebre D-D (+{sens['dd_breakeven_pct']:.1f}%). Se requiere maquila externa o reasignar referencias a otra línea.
-            </p>
-        </div>
-        """, unsafe_allow_html=True)
+        st.markdown("""
+        Evalúa instantáneamente el impacto del crecimiento o caída de la demanda sobre los requerimientos de turnos y la capacidad de la planta.
+        Compara el régimen estándar **Lunes a Sábado (74 turnos)** contra el régimen extraordinario **Domingo a Domingo (90 turnos)**.
+        """)
 
-    # Real-time metrics
-    s1, s2, s3, s4 = st.columns(4)
-    s1.metric("Demanda Proyectada", f"{round(base_dem * sens['multiplier']):,} ctn", delta=f"{delta_pct:+d}%")
-    s2.metric("Minutos de Máquina", f"{sens['total_minutes']:,.0f} min", help=f"Producción: {sens['production_minutes']:,.0f} min · Cambios: {sens['setup_minutes']:,.0f} min")
-    s3.metric("Turnos Requeridos", f"{sens['shifts_required']:.2f} turnos", help="Turnos equivalentes de 8 horas")
-    s4.metric("Ocupación L-S (74 turnos)", f"{sens['utilization_ls_pct']:.1f}%")
+        base_net_mins = sum(p.get("demand", 0) * 480.0 / p.get("rate", 1) for p in eff_sim if p.get("rate", 0) > 0)
+        base_setup_mins = float(result.get("setup_minutes", 0.0)) if result else 0.0
 
-    # Visual Gauge / Bullet Bar Chart
-    fig_sens = go.Figure()
-    bar_color = "#10b981" if sens["status"] == "CABEN_EN_LS" else ("#f59e0b" if sens["status"] == "REQUIERE_DD" else "#ef4444")
+        delta_pct = st.slider(
+            "Variación porcentual de la demanda total (%)",
+            min_value=-20,
+            max_value=60,
+            value=0,
+            step=1,
+            format="%+d%%",
+            key=key("sim_slider")
+        )
 
-    fig_sens.add_trace(go.Bar(
-        y=["Carga Requerida"],
-        x=[sens["shifts_required"]],
-        orientation="h",
-        marker=dict(color=bar_color),
-        text=f"{sens['shifts_required']:.2f} turnos ({sens['hours_required']:.1f} h)",
-        textposition="inside",
-        insidetextanchor="middle",
-        name="Turnos requeridos"
-    ))
+        sens = calculate_sensitivity(base_net_mins, base_setup_mins, delta_pct)
 
-    # Breakeven lines
-    fig_sens.add_vline(x=sens["ls_shifts"], line_dash="dash", line_color="#f59e0b", line_width=2.5, annotation_text=f"Tope Lunes a Sábado: {sens['ls_shifts']} turnos (Quiebre {sens['ls_breakeven_pct']:+.1f}%)", annotation_position="top left")
-    fig_sens.add_vline(x=sens["dd_shifts"], line_dash="dash", line_color="#ef4444", line_width=2.5, annotation_text=f"Tope Domingo a Domingo: {sens['dd_shifts']} turnos (Quiebre {sens['dd_breakeven_pct']:+.1f}%)", annotation_position="top right")
+        # Status callout banner
+        if sens["status"] == "CABEN_EN_LS":
+            st.markdown(f"""
+            <div style="background:#dcfce7;border:1px solid #86efac;color:#166534;padding:16px 20px;border-radius:10px;margin-bottom:16px;">
+                <h4 style="margin:0 0 4px 0;color:#166534;">🟢 {sens['status_label']}</h4>
+                <p style="margin:0;font-size:14.5px;">
+                    Holgura disponible: <strong>{sens['slack_ls_shifts']:.2f} turnos libres</strong> ({sens['slack_ls_hours']:.1f} horas). La línea puede absorber la demanda con el calendario regular sin habilitar turnos dominicales.
+                </p>
+            </div>
+            """, unsafe_allow_html=True)
+        elif sens["status"] == "REQUIERE_DD":
+            st.markdown(f"""
+            <div style="background:#fef3c7;border:1px solid #fcd34d;color:#92400e;padding:16px 20px;border-radius:10px;margin-bottom:16px;">
+                <h4 style="margin:0 0 4px 0;color:#92400e;">🟡 {sens['status_label']}</h4>
+                <p style="margin:0;font-size:14.5px;">
+                    Déficit sobre L-S: <strong>{abs(sens['slack_ls_shifts']):.2f} turnos excedentes</strong>. Se superó el punto de quiebre L-S (+{sens['ls_breakeven_pct']:.1f}%). Cabe habilitando domingos, con una holgura de <strong>{90 - sens['shifts_required']:.2f} turnos libres</strong> en régimen D-D.
+                </p>
+            </div>
+            """, unsafe_allow_html=True)
+        else:
+            st.markdown(f"""
+            <div style="background:#fee2e2;border:1px solid #fca5a5;color:#991b1b;padding:16px 20px;border-radius:10px;margin-bottom:16px;">
+                <h4 style="margin:0 0 4px 0;color:#991b1b;">🔴 {sens['status_label']}</h4>
+                <p style="margin:0;font-size:14.5px;">
+                    Déficit insuperable en planta: <strong>{sens['deficit_shifts']:.2f} turnos faltantes</strong> sobre el tope de 90 turnos. Se superó el punto de quiebre D-D (+{sens['dd_breakeven_pct']:.1f}%). Se requiere maquila externa o reasignar referencias a otra línea.
+                </p>
+            </div>
+            """, unsafe_allow_html=True)
 
-    fig_sens.update_layout(
-        height=180,
-        margin=dict(l=10, r=20, t=30, b=20),
-        xaxis=dict(title="Turnos equivalentes", range=[0, max(105, sens["shifts_required"] + 5)], showgrid=True),
-        yaxis=dict(showticklabels=False),
-        paper_bgcolor="rgba(0,0,0,0)",
-        plot_bgcolor="#ffffff",
-        showlegend=False
-    )
-    st.plotly_chart(fig_sens, width="stretch")
+        # Real-time metrics
+        s1, s2, s3, s4 = st.columns(4)
+        s1.metric("Demanda Proyectada", f"{round(base_dem * sens['multiplier']):,} ctn", delta=f"{delta_pct:+d}%")
+        s2.metric("Minutos de Máquina", f"{sens['total_minutes']:,.0f} min", help=f"Producción: {sens['production_minutes']:,.0f} min · Cambios: {sens['setup_minutes']:,.0f} min")
+        s3.metric("Turnos Requeridos", f"{sens['shifts_required']:.2f} turnos", help="Turnos equivalentes de 8 horas")
+        s4.metric("Ocupación L-S (74 turnos)", f"{sens['utilization_ls_pct']:.1f}%")
 
-    st.write("")
-    st.markdown("#### Tabla de sensibilidad por rangos de crecimiento")
-    sens_table = generate_sensitivity_table(base_net_mins, base_setup_mins, base_dem)
-    st.dataframe(sens_table, hide_index=True, width="stretch")
+        # Visual Gauge / Bullet Bar Chart
+        fig_sens = go.Figure()
+        bar_color = "#10b981" if sens["status"] == "CABEN_EN_LS" else ("#f59e0b" if sens["status"] == "REQUIERE_DD" else "#ef4444")
+
+        fig_sens.add_trace(go.Bar(
+            y=["Carga Requerida"],
+            x=[sens["shifts_required"]],
+            orientation="h",
+            marker=dict(color=bar_color),
+            text=f"{sens['shifts_required']:.2f} turnos ({sens['hours_required']:.1f} h)",
+            textposition="inside",
+            insidetextanchor="middle",
+            name="Turnos requeridos"
+        ))
+
+        # Breakeven lines
+        fig_sens.add_vline(x=sens["ls_shifts"], line_dash="dash", line_color="#f59e0b", line_width=2.5, annotation_text=f"Tope Lunes a Sábado: {sens['ls_shifts']} turnos (Quiebre {sens['ls_breakeven_pct']:+.1f}%)", annotation_position="top left")
+        fig_sens.add_vline(x=sens["dd_shifts"], line_dash="dash", line_color="#ef4444", line_width=2.5, annotation_text=f"Tope Domingo a Domingo: {sens['dd_shifts']} turnos (Quiebre {sens['dd_breakeven_pct']:+.1f}%)", annotation_position="top right")
+
+        fig_sens.update_layout(
+            height=180,
+            margin=dict(l=10, r=20, t=30, b=20),
+            xaxis=dict(title="Turnos equivalentes", range=[0, max(105, sens["shifts_required"] + 5)], showgrid=True),
+            yaxis=dict(showticklabels=False),
+            paper_bgcolor="rgba(0,0,0,0)",
+            plot_bgcolor="#ffffff",
+            showlegend=False
+        )
+        st.plotly_chart(fig_sens, width="stretch")
+
+        st.write("")
+        st.markdown("#### Tabla de sensibilidad por rangos de crecimiento")
+        sens_table = generate_sensitivity_table(base_net_mins, base_setup_mins, base_dem)
+        st.dataframe(sens_table, hide_index=True, width="stretch")
+
 
 
 # ---------------------------------------------------------------------------
@@ -1301,21 +1428,24 @@ with tabs[6]:
     st.write("")
     st.markdown("#### Formulación matemática y prueba formal de optimalidad")
 
-    with st.expander("Vía 1: Cota inferior combinatoria (Demostrable a mano)", expanded=True):
-        st.markdown("""
-        **Teorema de Cota Mínima Combinatoria:**
-        1. **Partición en Bloques Disjuntos:** Los cambios de **0 minutos** en la matriz dividen los 17 productos en exactamente **8 familias tecnológicas conexas**.
-        2. **Cero cruzado inexistente:** No existe ningún cambio de 0 minutos entre productos pertenecientes a familias distintas:
-        """)
-        st.latex(r"\forall u \in B_i, \forall v \in B_j \quad (i \ne j) \implies c(u, v) \ge 120 \text{ min}")
-        st.markdown("""
-        3. **Cruces obligatorios:** Para visitar los 17 productos en cualquier orden sin repetición, cualquier recorrido hamiltoniano debe realizar al menos **$8 - 1 = 7$ transiciones entre familias distintas**.
-        4. **Cota inferior irreducible:**
-        """)
-        st.latex(r"\text{Costo Total} \ge \sum_{k=1}^{7} \min_{i \ne j} c(B_i, B_j) = 7 \times 120\text{ min} = \mathbf{840\text{ min}}\text{ (14,0 horas)}")
-        st.markdown("""
-        5. **Certificado de Optimalidad:** La secuencia hallada por el solver realiza exactamente 7 cambios de 120 min y 0 cambios de 180 min, sumando exactamente **840 min**. Al alcanzar la cota inferior teórica, **queda matemáticamente probado que no existe ninguna secuencia posible con menor tiempo de cambio**.
-        """)
+    if is_volpak:
+        with st.expander("Vía 1: Cota inferior combinatoria (Demostrable a mano · Caso Volpak 4)", expanded=True):
+            st.markdown(clean_html("""
+            **Teorema de Cota Mínima Combinatoria (Línea Volpak 4):**
+            1. **Partición en Bloques Disjuntos:** Los cambios de **0 minutos** en la matriz dividen los 17 productos en exactamente **8 familias tecnológicas conexas**.
+            2. **Cero cruzado inexistente:** No existe ningún cambio de 0 minutos entre productos pertenecientes a familias distintas:
+            """))
+            st.latex(r"\forall u \in B_i, \forall v \in B_j \quad (i \ne j) \implies c(u, v) \ge 120 \text{ min}")
+            st.markdown(clean_html("""
+            3. **Cruces obligatorios:** Para visitar los 17 productos en cualquier orden sin repetición, cualquier recorrido hamiltoniano debe realizar al menos **$8 - 1 = 7$ transiciones entre familias distintas**.
+            4. **Cota inferior irreducible:**
+            """))
+            st.latex(r"\text{Costo Total} \ge \sum_{k=1}^{7} \min_{i \ne j} c(B_i, B_j) = 7 \times 120\text{ min} = \mathbf{840\text{ min}}\text{ (14,0 horas)}")
+            st.markdown(clean_html("""
+            5. **Certificado de Optimalidad:** La secuencia hallada por el solver realiza exactamente 7 cambios de 120 min y 0 cambios de 180 min, sumando exactamente **840 min**. Al alcanzar la cota inferior teórica, **queda matemáticamente probado que no existe ninguna secuencia posible con menor tiempo de cambio**.
+            """))
+    else:
+        st.info("ℹ️ La cota inferior combinatoria analítica (7 cruces x 120 min) y la comparativa de métodos corresponden específicamente al **Caso de Estudio Volpak 4**. Para evaluarlo, selecciona el Caso Volpak 4 desde la pantalla inicial. En este escenario personalizado, la formulación matemática exacta se resuelve mediante el modelo MTZ / CP-SAT que se describe a continuación:")
 
     with st.expander("Vía 2: Formulación exacta con OR-Tools CP-SAT y eliminación de subtours (MTZ)"):
         st.markdown("""
@@ -1564,82 +1694,6 @@ with tabs[7]:
                         horizontal=False
                     )
 
-# ---------------------------------------------------------------------------
-# TAB 9: MEMORIA DE AUDITORÍA Y DOCUMENTACIÓN TÉCNICA
-# ---------------------------------------------------------------------------
-with tabs[8]:
-    st.subheader("Memoria de Auditoría Operativa y Documentación Técnica")
-    st.markdown("""
-    Esta sección contiene la **especificación técnica formal y auditable** del modelo matemático, contratos de datos, pruebas de optimalidad y matriz de cuadre contable. Cumple con los estándares requeridos para sustentación de postgrado y auditorías industriales.
-    """)
-
-    doc_file = ROOT.parent / "DOCUMENTACION_TECNICA.md"
-    doc_text = doc_file.read_text(encoding="utf-8") if doc_file.exists() else "# Documentación Técnica no encontrada"
-
-    d_col1, d_col2 = st.columns([3, 1.2])
-    with d_col1:
-        st.caption("Repositorio oficial con CI/CD automatizado en GitHub: `https://github.com/ssebas204/Projects`")
-    with d_col2:
-        st.download_button(
-            "📥 Descargar Documentación (.md)",
-            data=doc_text,
-            file_name="DOCUMENTACION_TECNICA_VOLPAK4.md",
-            mime="text/markdown",
-            type="primary",
-            use_container_width=True,
-            key=key("btn_download_docs")
-        )
-
-    doc_subtabs = st.tabs([
-        "🧮 Formulación Matemática (MTZ)",
-        "📐 Demostración de Optimalidad",
-        "⚖️ Matriz de Cuadre Contable",
-        "📜 Documentación Completa (Markdown)"
-    ])
-
-    with doc_subtabs[0]:
-        st.markdown("### Formulación Formal: Modelo TSP con Eliminación de Subtoures (MTZ)")
-        st.write("El problema de secuenciación de campañas dependientes del orden se modela como un camino hamiltoniano abierto con nodo ficticio $0$:")
-        st.latex(r"\min Z = \sum_{i \in V_0} \sum_{j \in V_0, j \ne i} c_{ij} \cdot x_{ij}")
-        st.markdown("**Sujeto a las siguientes restricciones operativas:**")
-        st.markdown("1. **Conservación de Salida (Exactamente un sucesor por producto):**")
-        st.latex(r"\sum_{j \in V_0, j \ne i} x_{ij} = 1, \quad \forall i \in V_0")
-        st.markdown("2. **Conservación de Entrada (Exactamente un predecesor por producto):**")
-        st.latex(r"\sum_{i \in V_0, i \ne j} x_{ij} = 1, \quad \forall j \in V_0")
-        st.markdown("3. **Diagonal Cero Forzada (Imposibilidad de autolazos):**")
-        st.latex(r"x_{ii} = 0, \quad \forall i \in V_0")
-        st.markdown("4. **Eliminación Estricta de Subtoures (Miller-Tucker-Zemlin):**")
-        st.latex(r"u_i - u_j + n \cdot x_{ij} \le n - 1, \quad \forall i, j \in V, i \ne j")
-        st.caption(r"Donde $u_i \in [1, n]$ define la posición del producto en la secuencia de fabricación.")
-
-    with doc_subtabs[1]:
-        st.markdown("### Demostración Analítica de la Cota Inferior Combinatoria")
-        st.markdown("""
-        En cualquier sustentación o auditoría, este resultado se puede **demostrar a mano sin necesidad de software**:
-        
-        1. **Estructura de Bloques Conexos:** Al agrupar los 17 SKUs por transiciones de costo 0, se obtienen estrictamente **8 familias tecnológicas disjuntas**.
-        2. **Cruce Mínimo Obligatorio:** Cualquier plan completo debe visitar las 8 familias. Al no haber transiciones de 0 minutos entre familias distintas, deben ocurrir al menos $8 - 1 = 7$ cruces inter-familiares.
-        3. **Costo Mínimo por Cruce:** El cruce más económico en toda la matriz tecnológica cuesta **120 minutos**.
-        4. **Conclusión Matemática Irrefutable:**
-        """)
-        st.latex(r"\text{Cota Inferior Teórica} = 7 \times 120\text{ min} = \mathbf{840\text{ minutos}} \quad (14,0\text{ horas})")
-        st.success("Dado que la solución obtenida por el motor CP-SAT alcanza exactamente 840 minutos, queda formalmente demostrado que la solución es el **óptimo global absoluto** y no existe ningún orden de fabricación mejor.")
-
-    with doc_subtabs[2]:
-        st.markdown("### Matriz de Cuadre y Reconciliación de Auditoría (6 Checks)")
-        audit_data = [
-            {"Comprobación": "1. Cobertura Total de Demanda", "Criterio": "Programados >= Demanda", "Estado": "86.331 / 86.331 (100,0%)", "Veredicto": "✓ APROBADO"},
-            {"Comprobación": "2. Ausencia de Sobrecargas", "Criterio": "Minutos por turno <= 480 min", "Estado": "0 sobrecargas en 74 turnos", "Veredicto": "✓ APROBADO"},
-            {"Comprobación": "3. Optimalidad de Cambios", "Criterio": "Costo alcanzado == Cota inferior", "Estado": "840 min == 840 min", "Veredicto": "✓ APROBADO"},
-            {"Comprobación": "4. Cobertura de Productos", "Criterio": "17 SKUs en exactamente 1 campaña", "Estado": "17 SKUs sin partición", "Veredicto": "✓ APROBADO"},
-            {"Comprobación": "5. Diagonal Cero", "Criterio": "x_ii == 0", "Estado": "Sin autolazos", "Veredicto": "✓ APROBADO"},
-            {"Comprobación": "6. Balance Horario de Capacidad", "Criterio": "Suma de minutos == 35.520 min", "Estado": "Reconciliación exacta al segundo", "Veredicto": "✓ APROBADO"},
-        ]
-        st.dataframe(pd.DataFrame(audit_data), hide_index=True, use_container_width=True)
-
-    with doc_subtabs[3]:
-        st.markdown("### Memoria Técnica Oficial (DOCUMENTACION_TECNICA.md)")
-        st.markdown(doc_text)
 
 st.write("")
 st.caption("Planificador de Fabricación · by: Sebastian Parra · Motor: Python + OR-Tools CP-SAT · Interfaz: Streamlit.")

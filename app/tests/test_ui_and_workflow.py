@@ -36,13 +36,31 @@ def demo():
 # 1. STREAMLIT APP HEADLESS INTEGRATION TESTS
 # ---------------------------------------------------------------------------
 
+
+def enter_volpak_if_splash(at):
+    """Enters Volpak 4 mode if the app is currently stopped at the splash gate."""
+    enter_btns = [b for b in at.button if "Volpak 4" in b.label]
+    if enter_btns:
+        enter_btns[0].click().run()
+        assert not at.exception
+
 def test_app_clean_initialization():
-    """Verify that the full Streamlit app initializes with 0 exceptions and renders tabs."""
+    """Verify that the full Streamlit app initializes with splash gate on cold start and 8 tabs upon selecting Volpak 4."""
     app_path = str(Path(__file__).resolve().parents[1] / "app.py")
     at = AppTest.from_file(app_path, default_timeout=30)
     at.run()
-    main_tab_labels = [t.label for t in at.tabs if any(s in t.label for s in ["Resumen", "Productos", "Calendario", "Plan", "Reta", "Simulador", "Métodos", "Escalamiento", "Auditoría"])]
-    assert len(main_tab_labels) == 9, f"Expected 9 main tabs, found {len(main_tab_labels)}"
+    assert not at.exception
+    # Cold start: splash gate with 0 tabs
+    assert len(at.tabs) == 0
+    enter_btns = [b for b in at.button if "Volpak 4" in b.label]
+    assert len(enter_btns) == 1
+    # Enter Volpak 4
+    enter_btns[0].click().run()
+    assert not at.exception
+    main_tab_labels = [t.label for t in at.tabs if any(s in t.label for s in ["Resumen", "Productos", "Calendario", "Plan", "Reta", "Simulador", "Métodos", "Escalamiento"])]
+    assert len(main_tab_labels) == 8, f"Expected 8 main tabs, found {len(main_tab_labels)}"
+    # Verify Tab 9 Auditoría is NOT present in app
+    assert not any("Auditoría" in t.label for t in at.tabs)
 
 
 def test_app_theme_selector_toggles():
@@ -62,6 +80,7 @@ def test_app_interactive_sensitivity_slider():
     app_path = str(Path(__file__).resolve().parents[1] / "app.py")
     at = AppTest.from_file(app_path, default_timeout=30)
     at.run()
+    enter_volpak_if_splash(at)
     assert not at.exception
 
     # Locate slider widget and adjust value to +30%
@@ -77,6 +96,7 @@ def test_app_interactive_matrix_toggle():
     app_path = str(Path(__file__).resolve().parents[1] / "app.py")
     at = AppTest.from_file(app_path, default_timeout=30)
     at.run()
+    enter_volpak_if_splash(at)
     assert not at.exception
 
     radios = at.radio
@@ -100,6 +120,7 @@ def test_app_game_interaction():
     app_path = str(Path(__file__).resolve().parents[1] / "app.py")
     at = AppTest.from_file(app_path, default_timeout=30)
     at.run()
+    enter_volpak_if_splash(at)
     assert not at.exception
 
     # Find the '★ Cargar secuencia óptima (840 min)' button
@@ -122,6 +143,7 @@ def test_app_scaling_roadmap_filter():
     app_path = str(Path(__file__).resolve().parents[1] / "app.py")
     at = AppTest.from_file(app_path, default_timeout=30)
     at.run()
+    enter_volpak_if_splash(at)
     assert not at.exception
 
     radios = at.radio
@@ -131,11 +153,6 @@ def test_app_scaling_roadmap_filter():
     for opt in ["BLOQUEANTE", "ALTO IMPACTO", "REFINAMIENTO", "TODOS"]:
         scale_radio.set_value(opt).run()
         assert not at.exception
-
-
-# ---------------------------------------------------------------------------
-# 2. FEATURE-BY-FEATURE STRICT NUMERICAL & INTEGRITY AUDITS
-# ---------------------------------------------------------------------------
 
 def test_feature1_executive_summary_exact_numbers(demo):
     """Audits Requirement 1: Executive summary & high impact KPIs."""
@@ -297,11 +314,13 @@ def test_feature7_excel_export_and_checks(demo):
         assert passed is True, f"Mathematical check failed: {check_name}"
 
 
+
 def test_apptest_severe_interactive_lifecycle():
     """Simulate a complete user session with aggressive state transitions in Streamlit."""
     app_path = str(Path(__file__).resolve().parents[1] / "app.py")
     at = AppTest.from_file(app_path, default_timeout=45)
     at.run()
+    enter_volpak_if_splash(at)
     assert not at.exception
 
     # 1. Stress the Sensitivity Slider through multiple boundary steps
@@ -353,6 +372,7 @@ def test_app_empty_products_scenario_lifecycle(demo):
     app_path = str(Path(__file__).resolve().parents[1] / "app.py")
     at = AppTest.from_file(app_path, default_timeout=30)
     at.run()
+    enter_volpak_if_splash(at)
     assert not at.exception
 
     empty_scenario = copy.deepcopy(demo)
@@ -367,13 +387,12 @@ def test_app_empty_products_scenario_lifecycle(demo):
     assert not at.exception, f"App crashed on empty products: {at.exception}"
 
     # Verify fallback text in executive cards
-    md_texts = [m.value for m in at.markdown]
-    has_fallback = any("Según capacidad y calendario" in t for t in md_texts)
-    assert has_fallback, "Executive card m3 did not display fallback 'Según capacidad y calendario'"
+    md_texts = " ".join(m.value for m in at.markdown)
+    assert "Configuración Inicial del Nuevo Escenario" in md_texts or "personalizado" in md_texts.lower()
 
     # Verify mini-game handles empty scenario gracefully
     info_texts = [i.value for i in at.info]
-    assert any("No hay familias" in t for t in info_texts), "Mini-game did not show empty families notice"
+    assert any("requiere al menos 2 familias" in t for t in info_texts), "Mini-game did not show empty families notice"
 
 
 def test_app_dynamic_executive_card_finish_formatting(demo):
@@ -381,6 +400,7 @@ def test_app_dynamic_executive_card_finish_formatting(demo):
     app_path = str(Path(__file__).resolve().parents[1] / "app.py")
     at = AppTest.from_file(app_path, default_timeout=30)
     at.run()
+    enter_volpak_if_splash(at)
     assert not at.exception
 
     # Volpak 4 demo finishes on September 24
@@ -403,6 +423,7 @@ def test_app_mini_game_optimal_button_dynamism_and_key_namespacing(demo):
     app_path = str(Path(__file__).resolve().parents[1] / "app.py")
     at = AppTest.from_file(app_path, default_timeout=30)
     at.run()
+    enter_volpak_if_splash(at)
     assert not at.exception
 
     # Default Volpak 4 demo has 840 min bound
@@ -422,6 +443,7 @@ def test_app_dynamic_pareto_banner_content(demo):
     app_path = str(Path(__file__).resolve().parents[1] / "app.py")
     at = AppTest.from_file(app_path, default_timeout=30)
     at.run()
+    enter_volpak_if_splash(at)
     assert not at.exception
 
     info_texts = [i.value for i in at.info]
@@ -441,6 +463,7 @@ def test_app_empty_products_initial_boot_metrics(demo):
     app_path = str(Path(__file__).resolve().parents[1] / "app.py")
     at = AppTest.from_file(app_path, default_timeout=30)
     at.run()
+    enter_volpak_if_splash(at)
     assert not at.exception
 
     # Swap to empty scenario and re-run
@@ -451,31 +474,24 @@ def test_app_empty_products_initial_boot_metrics(demo):
     at.session_state["result"] = None
     at.session_state["epoch"] += 1
     at.run()
-
     assert not at.exception
+
     md_texts = " ".join(m.value for m in at.markdown)
-    assert '0 <span style="font-size:16px;color:#64748b;">ctn</span>' in md_texts
-    assert "Sin productos cargados" in md_texts
-    assert "0 / 74" in md_texts
-    assert "0 min" in md_texts
-    assert "Según capacidad y calendario" in md_texts
+    assert "Configuración Inicial del Nuevo Escenario" in md_texts
 
 
 def test_app_missing_config_keys_resilience(demo):
-    """Verify app does not crash with KeyError if scenario config is partial or missing."""
+    """Verify that app handles missing config keys (shift_hours, weekday_shifts, etc.) without crashing."""
     app_path = str(Path(__file__).resolve().parents[1] / "app.py")
     at = AppTest.from_file(app_path, default_timeout=30)
     at.run()
+    enter_volpak_if_splash(at)
     assert not at.exception
 
-    # Strip config keys
-    scen_no_cfg = copy.deepcopy(demo)
-    scen_no_cfg["config"] = {}
-    at.session_state["source"] = scen_no_cfg
+    # Corrupt config by stripping all keys
+    at.session_state["source"]["config"] = {}
     at.session_state["epoch"] += 1
     at.run()
-
-    # Must survive without KeyError: 'weekday_shifts', 'factor', or 'year'
     assert not at.exception
 
 
@@ -484,6 +500,7 @@ def test_app_mini_game_click_optimal_button_reaches_proven_optimum(demo):
     app_path = str(Path(__file__).resolve().parents[1] / "app.py")
     at = AppTest.from_file(app_path, default_timeout=30)
     at.run()
+    enter_volpak_if_splash(at)
     assert not at.exception
 
     # Find the optimal sequence button and click it
@@ -502,36 +519,47 @@ def test_app_mini_game_click_optimal_button_reaches_proven_optimum(demo):
 
 
 def test_app_mode_selector_and_scenario_transition():
-    """Verify that toggling between Volpak 4 and Nuevo Escenario works smoothly without error."""
+    """Verify that selecting between Volpak 4 and Nuevo Escenario works smoothly without error and prevents Volpak data leaks."""
     app_path = str(Path(__file__).resolve().parents[1] / "app.py")
     at = AppTest.from_file(app_path, default_timeout=30)
     at.run()
     assert not at.exception
 
-    # Find mode selector
-    mode_radios = [r for r in at.radio if "modo" in r.label.lower()]
-    assert len(mode_radios) == 1
-    mode_radio = mode_radios[0]
-    assert len(mode_radio.options) == 2
+    # 1. Start at Splash Gate
+    assert len(at.tabs) == 0
+    custom_btn = [b for b in at.button if "Nuevo Escenario" in b.label]
+    assert len(custom_btn) >= 1
 
-    # Switch to Nuevo Escenario
-    custom_opt = [o for o in mode_radio.options if "Nuevo Escenario" in o][0]
-    mode_radio.set_value(custom_opt).run()
+    # 2. Enter Nuevo Escenario
+    custom_btn[0].click().run()
     assert not at.exception
-    assert at.session_state["app_mode"] == custom_opt
+    assert at.session_state["app_mode"] == "⚙️ Nuevo Escenario / Cargar Datos"
+    # Products must be empty in blank scenario
+    assert len(at.session_state["source"]["products"]) == 0
+    assert at.session_state["result"] is None
 
-    # Check onboarding expander exists in new scenario mode
-    all_subheaders = [s.value for s in at.subheader]
-    all_expanders = [e.label for e in at.expander]
-    all_md = [m.value for m in at.markdown]
-    combined_texts = " ".join(all_subheaders + all_expanders + all_md)
-    assert "Marco de Madurez Operativa" in combined_texts or "nuevo escenario" in combined_texts.lower()
+    # Verify no Volpak 4 leakage in rendered text
+    md_texts = " ".join(m.value for m in at.markdown)
+    assert "840 min" not in md_texts
+    assert "86.331" not in md_texts
+    assert "Configuración Inicial del Nuevo Escenario" in md_texts
 
-    # Switch back to Volpak 4
-    volpak_opt = [o for o in mode_radio.options if "Volpak 4" in o][0]
-    mode_radio.set_value(volpak_opt).run()
+    # 3. Return to Splash Gate using return button
+    reset_btn = [b for b in at.button if "Cambiar de modo" in b.label or "Volver" in b.label]
+    assert len(reset_btn) >= 1
+    reset_btn[0].click().run()
     assert not at.exception
-    assert at.session_state["app_mode"] == volpak_opt
+    assert at.session_state["app_mode"] is None
+    assert len(at.tabs) == 0
+
+    # 4. Enter Volpak 4
+    volpak_btn = [b for b in at.button if "Volpak 4" in b.label]
+    assert len(volpak_btn) >= 1
+    volpak_btn[0].click().run()
+    assert not at.exception
+    assert at.session_state["app_mode"] == "📋 Caso Estudio: Línea Volpak 4 (Septiembre 2026)"
+    assert len(at.session_state["source"]["products"]) == 17
+    assert at.session_state["result"]["setup_minutes"] == 840.0
 
 
 def test_app_executive_summary_title_and_chips():
@@ -539,6 +567,7 @@ def test_app_executive_summary_title_and_chips():
     app_path = str(Path(__file__).resolve().parents[1] / "app.py")
     at = AppTest.from_file(app_path, default_timeout=30)
     at.run()
+    enter_volpak_if_splash(at)
     assert not at.exception
 
     md_texts = " ".join(m.value for m in at.markdown)
@@ -552,7 +581,6 @@ def test_app_executive_summary_title_and_chips():
     assert "PRODUCCIÓN NETA" in md_texts
     assert "CAMBIOS DE FORMATO" in md_texts
     assert "CAPACIDAD LIBRE" in md_texts
-    assert "¡Ahora 100% legible!" in md_texts
 
 
 def test_app_scaling_tab_mode_adaptation():
@@ -560,16 +588,17 @@ def test_app_scaling_tab_mode_adaptation():
     app_path = str(Path(__file__).resolve().parents[1] / "app.py")
     at = AppTest.from_file(app_path, default_timeout=30)
     at.run()
+    enter_volpak_if_splash(at)
     assert not at.exception
 
     # Default Volpak mode shows Volpak 4 question
     md_texts_v4 = " ".join(m.value for m in at.markdown)
     assert "escalar el ejercicio de Volpak 4" in md_texts_v4
 
-    # Switch to Custom mode
-    mode_radio = [r for r in at.radio if "modo" in r.label.lower()][0]
-    custom_opt = [o for o in mode_radio.options if "Nuevo Escenario" in o][0]
-    mode_radio.set_value(custom_opt).run()
+    # Switch to Custom mode via session state
+    at.session_state["app_mode"] = "⚙️ Nuevo Escenario / Cargar Datos"
+    at.session_state["epoch"] += 1
+    at.run()
     assert not at.exception
 
     # Now shows Maturity Checklist in subheaders
@@ -586,12 +615,13 @@ def test_app_maturity_checklist_persistence_on_filter_and_presets():
     app_path = str(Path(__file__).resolve().parents[1] / "app.py")
     at = AppTest.from_file(app_path, default_timeout=30)
     at.run()
+    enter_volpak_if_splash(at)
     assert not at.exception
 
     # Switch to Custom mode
-    mode_radio = [r for r in at.radio if "modo" in r.label.lower()][0]
-    custom_opt = [o for o in mode_radio.options if "Nuevo Escenario" in o][0]
-    mode_radio.set_value(custom_opt).run()
+    at.session_state["app_mode"] = "⚙️ Nuevo Escenario / Cargar Datos"
+    at.session_state["epoch"] += 1
+    at.run()
     assert not at.exception
 
     # Modify item 5 to "❌ No disponible"
@@ -627,5 +657,43 @@ def test_app_maturity_checklist_persistence_on_filter_and_presets():
     assert "100.0%" in mat_metrics[0].value
 
 
+def test_no_raw_html_code_block_leaks():
+    """Verify that no HTML markup leaks as raw pre/code blocks in markdown due to indentation."""
+    app_path = str(Path(__file__).resolve().parents[1] / "app.py")
+    at = AppTest.from_file(app_path, default_timeout=30)
+    at.run()
+    enter_volpak_if_splash(at)
+    assert not at.exception
+
+    for m in at.markdown:
+        val = m.value.strip()
+        # Ensure that no element contains raw div tags displayed as literal text
+        assert not val.startswith("```html"), f"Raw HTML code block leak: {val[:80]}"
+        assert not val.startswith("```"), f"Unexpected code block in markdown: {val[:80]}"
 
 
+def test_custom_scenario_clean_onboarding_no_volpak_leakage():
+    """Strict QA audit: Nuevo Escenario must never display Volpak 4 numbers (840 min, 86.331 ctn)."""
+    app_path = str(Path(__file__).resolve().parents[1] / "app.py")
+    at = AppTest.from_file(app_path, default_timeout=30)
+    at.run()
+    assert not at.exception
+
+    # Click Nuevo Escenario
+    custom_btn = [b for b in at.button if "Nuevo Escenario" in b.label][0]
+    custom_btn.click().run()
+    assert not at.exception
+
+    # 1. State must be blank
+    assert at.session_state["source"]["products"] == []
+    assert at.session_state["result"] is None
+
+    # 2. No metrics should leak Volpak 4 numbers
+    all_markdown = " ".join(m.value for m in at.markdown)
+    assert "86.331" not in all_markdown, "Leaked Volpak 4 total demand 86.331 into Nuevo Escenario!"
+    assert "840 min" not in all_markdown, "Leaked Volpak 4 840 min setup into Nuevo Escenario!"
+    assert "14.0 h" not in all_markdown and "14,0 h" not in all_markdown, "Leaked 14.0 h into Nuevo Escenario!"
+
+    # 3. Clean onboarding assistant card must be present
+    assert "Configuración Inicial del Nuevo Escenario" in all_markdown
+    assert "Cargar los 3 archivos Excel" in [b.label for b in at.button]

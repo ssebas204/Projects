@@ -134,6 +134,10 @@ def test_streamlit_load_and_optimize():
     path = Path(__file__).resolve().parents[1] / "app.py"
     app = AppTest.from_file(str(path), default_timeout=40).run()
     assert not app.exception
+    enter_btns = [b for b in app.button if "Volpak 4" in b.label]
+    if enter_btns:
+        enter_btns[0].click().run()
+        assert not app.exception
     next(b for b in app.button if b.label == "Optimizar y generar plan").click().run()
     assert not app.exception
     assert app.session_state["result"]["missing"] == 0
