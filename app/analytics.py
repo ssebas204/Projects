@@ -740,3 +740,120 @@ def get_scaling_data(criticality_filter: Optional[str] = None) -> pd.DataFrame:
     if criticality_filter and criticality_filter != "TODOS":
         data = [d for d in data if d["criticality"].upper() == criticality_filter.upper()]
     return pd.DataFrame(data)
+
+
+DEFAULT_MATURITY_RESPONSES = {
+    1: "SI",          # Asignación producto -> línea
+    2: "EN_PROCESO",  # SKUs en más de una línea
+    3: "SI",          # Matriz de cambios
+    4: "SI",          # Tasa cartones/turno
+    5: "SI",          # Unidad y definición de necesidad
+    6: "EN_PROCESO",  # Fecha de requerimiento
+    7: "EN_PROCESO",  # Último producto de agosto
+    8: "EN_PROCESO",  # Paradas programadas
+    9: "EN_PROCESO",  # Reglas de alérgenos
+    10: "EN_PROCESO", # OEE real y merma
+    11: "EN_PROCESO", # Lote mínimo/máximo
+    12: "EN_PROCESO", # Disponibilidad material empaque
+    13: "NO_DISPONIBLE", # Costo de turno
+    14: "EN_PROCESO", # Capacidad almacenamiento
+}
+
+
+def calculate_maturity_score(responses: Optional[Dict[int, str]] = None) -> Dict[str, Any]:
+    """Calculate operational maturity score and industrial readiness level.
+    
+    Weights by criticality:
+    - BLOQUEANTE: 3.0 points
+    - ALTO IMPACTO: 2.0 points
+    - REFINAMIENTO: 1.0 point
+    
+    Status scoring:
+    - SI (Disponible): 100% of weight
+    - EN_PROCESO: 50% of weight
+    - NO_DISPONIBLE: 0% of weight
+    """
+    if responses is None:
+        responses = DEFAULT_MATURITY_RESPONSES
+
+    weights = {
+        "BLOQUEANTE": 3.0,
+        "ALTO IMPACTO": 2.0,
+        "REFINAMIENTO": 1.0,
+    }
+    
+    total_weight = 0.0
+    earned_weight = 0.0
+    count_si = 0
+    count_proceso = 0
+    count_no = 0
+    blocking_missing = []
+
+    for item in SCALING_DATA:
+        num = item["num"]
+        crit = item["criticality"]
+        w = weights.get(crit, 1.0)
+        total_weight += w
+        
+        status = str(responses.get(num, "EN_PROCESO")).upper()
+        if any(tok in status for tok in ["SÍ", "SI", "DISPONIBLE"]) and "NO" not in status:
+            earned_weight += w * 1.0
+            count_si += 1
+        elif any(tok in status for tok in ["PROCESO", "CURSO", "PARCIAL"]):
+            earned_weight += w * 0.5
+            count_proceso += 1
+        else:
+            count_no += 1
+            if crit == "BLOQUEANTE":
+                blocking_missing.append(item["item"])
+
+    score_pct = (earned_weight / total_weight * 100.0) if total_weight > 0 else 0.0
+
+    if score_pct >= 85.0 and not blocking_missing:
+        level = "🟢 Nivel Avanzado: Listo para Despliegue Multi-línea"
+        level_badge = "AVANZADO"
+        level_color = "#16a34a"
+        recommendation = (
+            "La planta cuenta con los datos maestros y restricciones necesarias para un despliegue "
+            "multi-línea integrado con optimización simultánea de asignación y secuenciación."
+        )
+    elif score_pct >= 60.0:
+        level = "🟡 Nivel Operativo: Factible para Programación Mono-línea"
+        level_badge = "OPERATIVO"
+        level_color = "#2563eb"
+        recommendation = (
+            "La planta puede ejecutar optimizaciones mono-línea exitosamente. Prioriza levantar "
+            "los datos de asignación multi-línea y restricciones cruzadas para escalar al resto de la planta."
+        )
+    elif score_pct >= 40.0:
+        level = "🟠 Nivel Básico: En Proceso de Levantamiento de Datos"
+        level_badge = "BÁSICO"
+        level_color = "#d97706"
+        recommendation = (
+            "Existen datos clave en proceso. Se recomienda consolidar matrices de cambio y "
+            "calendarios de mantenimiento antes de automatizar la programación en planta real."
+        )
+    else:
+        level = "🔴 Nivel Diagnóstico: Requiere Datos Maestros Bloqueantes"
+        level_badge = "DIAGNÓSTICO"
+        level_color = "#dc2626"
+        recommendation = (
+            "Se requiere levantar los datos maestros bloqueantes (matrices de cambio, tasas reales "
+            "y asignación producto-línea) antes de aplicar el modelo matemático."
+        )
+
+    return {
+        "score_pct": round(score_pct, 1),
+        "earned_points": round(earned_weight, 2),
+        "max_points": round(total_weight, 2),
+        "count_si": count_si,
+        "count_proceso": count_proceso,
+        "count_no": count_no,
+        "total_items": len(SCALING_DATA),
+        "blocking_missing": blocking_missing,
+        "level": level,
+        "level_badge": level_badge,
+        "level_color": level_color,
+        "recommendation": recommendation,
+    }
+

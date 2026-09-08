@@ -11,9 +11,11 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from analytics import (
     DEFAULT_FAMILY_NAMES,
+    DEFAULT_MATURITY_RESPONSES,
     LS_CAPACITY_SHIFTS,
     DD_CAPACITY_SHIFTS,
     THEORETICAL_WORST_CASE_MINUTES,
+    calculate_maturity_score,
     calculate_pareto,
     calculate_sensitivity,
     detect_families,
@@ -205,3 +207,42 @@ def test_scaling_data_filters():
 
     refinamientos = get_scaling_data("REFINAMIENTO")
     assert len(refinamientos) == 5
+
+
+def test_calculate_maturity_score_defaults():
+    mat = calculate_maturity_score()
+    assert 55.0 <= mat["score_pct"] <= 75.0
+    assert mat["count_si"] >= 4
+    assert mat["count_proceso"] >= 5
+    assert mat["total_items"] == 14
+    assert "Operativo" in mat["level"]
+
+
+def test_calculate_maturity_score_all_si():
+    all_si = {i: "✅ Sí (Disponible)" for i in range(1, 15)}
+    mat = calculate_maturity_score(all_si)
+    assert mat["score_pct"] == 100.0
+    assert mat["count_si"] == 14
+    assert mat["count_proceso"] == 0
+    assert mat["count_no"] == 0
+    assert len(mat["blocking_missing"]) == 0
+    assert "Avanzado" in mat["level"]
+
+
+def test_calculate_maturity_score_all_no():
+    all_no = {i: "❌ No disponible" for i in range(1, 15)}
+    mat = calculate_maturity_score(all_no)
+    assert mat["score_pct"] == 0.0
+    assert mat["count_no"] == 14
+    assert len(mat["blocking_missing"]) == 4
+    assert "Diagnóstico" in mat["level"]
+
+
+def test_calculate_maturity_score_missing_blocking():
+    custom = {i: "SI" for i in range(1, 15)}
+    custom[1] = "NO_DISPONIBLE"  # Bloqueante 1 missing
+    mat = calculate_maturity_score(custom)
+    assert len(mat["blocking_missing"]) == 1
+    assert "Asignación producto" in mat["blocking_missing"][0]
+    assert mat["score_pct"] < 100.0
+

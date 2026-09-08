@@ -18,9 +18,11 @@ import streamlit as st
 
 from analytics import (
     DEFAULT_FAMILY_NAMES,
+    DEFAULT_MATURITY_RESPONSES,
     LS_CAPACITY_SHIFTS,
     DD_CAPACITY_SHIFTS,
     THEORETICAL_WORST_CASE_MINUTES,
+    calculate_maturity_score,
     calculate_pareto,
     calculate_sensitivity,
     detect_families,
@@ -98,7 +100,15 @@ def pretty(n, digits=0):
     return f"{n:,.{digits}f}".replace(",", "_").replace(".", ",").replace("_", ".")
 
 
+MODE_VOLPAK = "📋 Caso Estudio: Línea Volpak 4 (Septiembre 2026)"
+MODE_CUSTOM = "⚙️ Nuevo Escenario / Cargar Datos"
+
 # Session initialization
+if "app_mode" not in st.session_state:
+    st.session_state.app_mode = MODE_VOLPAK
+if "last_mode" not in st.session_state:
+    st.session_state.last_mode = MODE_VOLPAK
+
 if "source" not in st.session_state:
     st.session_state.source = demo()
     st.session_state.epoch = 0
@@ -116,23 +126,106 @@ epoch = st.session_state.epoch
 key = lambda name: f"{epoch}_{name}"
 cfg = source.get("config", {})
 
+
+def on_mode_change():
+    new_mode = st.session_state.app_mode
+    if new_mode == MODE_VOLPAK:
+        st.session_state.source = demo()
+        st.session_state.game_sequence = []
+        try:
+            st.session_state.result = solve(st.session_state.source)
+        except Exception:
+            st.session_state.result = None
+        name_k = f"{st.session_state.epoch}_name"
+        if name_k in st.session_state:
+            st.session_state[name_k] = "Línea Volpak 4"
+
+
 # Header
-st.markdown("""
+tagline_text = (
+    "Línea Volpak 4 · Optimización exacta de cambios de formato con OR-Tools CP-SAT"
+    if st.session_state.get("app_mode") == MODE_VOLPAK
+    else f"{source.get('name', 'Línea de Envasado')} · Programación matemática y optimización con OR-Tools CP-SAT"
+)
+st.markdown(f"""
 <div class="app-header">
     <div>
         <h1>Planificador de Fabricación</h1>
-        <div class="tagline">Línea Volpak 4 · Optimización exacta de cambios de formato con OR-Tools CP-SAT</div>
+        <div class="tagline">{tagline_text}</div>
     </div>
     <div class="author">by: Sebastian Parra</div>
 </div>
 """, unsafe_allow_html=True)
 
+# Mode Selector
+modo = st.radio(
+    "Modo de la aplicación:",
+    [MODE_VOLPAK, MODE_CUSTOM],
+    horizontal=True,
+    key="app_mode",
+    on_change=on_mode_change,
+    help="Elige el Caso Estudio base para la Línea Volpak 4 o configura un Nuevo Escenario para otra línea."
+)
+is_volpak = (modo == MODE_VOLPAK)
+
+# Onboarding and loading options when in Custom Scenario mode
+if not is_volpak:
+    with st.expander("📥 Cargar datos del Nuevo Escenario (Excel / JSON / Plantilla en blanco)", expanded=(len(source.get("products", [])) == 0 or source.get("name") == "Línea Volpak 4")):
+        st.markdown("""
+        <div style="font-size:14px;color:#334155;margin-bottom:10px;">
+            Carga los archivos maestros para este nuevo escenario de fabricación o inicia con una plantilla en blanco:
+        </div>
+        """, unsafe_allow_html=True)
+        top_tab1, top_tab2, top_tab3 = st.tabs(["📊 3 Archivos Excel (Profesor)", "💾 Archivo JSON Guardado", "✨ Plantilla en Blanco"])
+        with top_tab1:
+            st.caption("Carga los tres libros Excel originales del taller (Asignación, Necesidad, Matriz de cambios).")
+            uc1, uc2, uc3 = st.columns(3)
+            top_assign = uc1.file_uploader("1. Asignación de productos", type=["xlsx"], key=key("top_assign"))
+            top_dem = uc2.file_uploader("2. Necesidad de fabricación", type=["xlsx"], key=key("top_dem"))
+            top_mat = uc3.file_uploader("3. Matriz de cambios", type=["xlsx"], key=key("top_mat"))
+            if st.button("Cargar los tres archivos Excel", disabled=not all([top_assign, top_dem, top_mat]), key=key("btn_top_excel")):
+                try:
+                    loaded = import_three(top_assign.getvalue(), top_dem.getvalue(), top_mat.getvalue(), cfg)
+                    issues = validate(loaded)
+                    if issues:
+                        st.error("\n\n".join(issues))
+                    else:
+                        replace_scenario(loaded)
+                except Exception as exc:
+                    st.error(f"Error al importar archivos: {exc}")
+        with top_tab2:
+            st.caption("Restaura un escenario guardado previamente en formato JSON.")
+            top_json = st.file_uploader("Escenario guardado (.json)", type=["json"], key=key("top_json"))
+            if st.button("Restaurar escenario JSON", disabled=top_json is None, key=key("btn_top_json")):
+                try:
+                    loaded = json.loads(top_json.getvalue())
+                    issues = validate(loaded)
+                    if issues or loaded.get("version") != 1:
+                        st.error("\n\n".join(issues) or "Versión de escenario no compatible.")
+                    else:
+                        replace_scenario(loaded)
+                except Exception as exc:
+                    st.error(f"Error al restaurar JSON: {exc}")
+        with top_tab3:
+            st.caption("Crea una plantilla limpia para definir productos, demandas y matriz manualmente en la pestaña 'Productos y Matriz'.")
+            if st.button("Crear nuevo escenario en blanco", key=key("btn_blank")):
+                blank_scen = {
+                    "name": "Nuevo Escenario de Producción",
+                    "config": {"shift_hours": 8, "weekday_shifts": 3, "saturday_shifts": 2, "sunday_shifts": 0, "year": 2026, "month": 9},
+                    "products": [],
+                    "matrix": {},
+                    "closures": []
+                }
+                replace_scenario(blank_scen)
+
 # Context controls
 context = st.columns([2.5, 2, 1.2])
-name = context[0].text_input("Nombre del escenario", value=source.get("name", "Escenario Personalizado"), key=key("name"))
+default_name = "Línea Volpak 4" if is_volpak else source.get("name", "Nuevo Escenario de Producción")
+name = context[0].text_input("Nombre del escenario", value=source.get("name", default_name), key=key("name"))
+source["name"] = name
 selected_month = context[1].date_input("Mes de fabricación", value=date(cfg.get("year", 2026), cfg.get("month", 9), 1), key=key("month"), help="Se utiliza todo el mes de la fecha seleccionada.")
 context[2].markdown("**Línea de producción**")
-context[2].write(", ".join(dict.fromkeys(str(p["line"]) for p in source.get("products", []))) or "No definida")
+context[2].write(", ".join(dict.fromkeys(str(p["line"]) for p in source.get("products", []))) or ("Volpak 4" if is_volpak else "No definida"))
 
 # Navigation tabs
 steps = [
@@ -164,14 +257,12 @@ current_closures = copy.deepcopy(source.get("closures", []))
 # TAB 1: RESUMEN EJECUTIVO Y KPIS DE ALTO IMPACTO
 # ---------------------------------------------------------------------------
 with tabs[0]:
-    st.markdown("""
-    <div class="editorial-box">
-        <h2>Trece horas de línea que nadie estaba contando</h2>
-        <p>
-            En la planta Volpak 4, secuenciar los 17 productos por familias conexas rescata <strong>13 horas de cambios improductivos</strong> frente al orden tradicional por código ascendente (840 min vs. 1.620 min). Esta optimización matemática garantiza cubrir los <strong>86.331 cartones</strong> requeridos para el mes antes del 24 de septiembre, reservando <strong>14 turnos libres de holgura operativa</strong> para absorber contingencias o mantenimientos.
-        </p>
-    </div>
-    """, unsafe_allow_html=True)
+    exec_title = (
+        "Plan Maestro de Fabricación y Secuenciación Óptima · Línea Volpak 4"
+        if is_volpak
+        else f"Plan Maestro de Fabricación y Secuenciación Óptima · {html.escape(source.get('name', 'Línea de Producción'))}"
+    )
+    exec_subtitle = "Programación matemática de producción mediante minimización de tiempos de cambio y balance de capacidad operativa"
 
     # Dynamic KPI calculations
     eff_prods = effective_products(source)
@@ -202,6 +293,41 @@ with tabs[0]:
     prod_turns_calc = net_prod_mins / 480.0
     setup_turns_calc = opt_setup_mins / 480.0
     free_turns_calc = max(0.0, avail_shifts_cal - (prod_turns_calc + setup_turns_calc))
+
+    if is_volpak:
+        exec_narrative = (
+            "En la planta Volpak 4, secuenciar los 17 productos por familias conexas rescata "
+            "<strong>13 horas de cambios improductivos</strong> frente al orden tradicional por código ascendente "
+            "(840 min vs. 1.620 min). Esta optimización matemática garantiza cubrir los <strong>86.331 cartones</strong> "
+            "requeridos para el mes antes del 24 de septiembre, reservando <strong>14 turnos libres de holgura operativa</strong> "
+            "para absorber contingencias o mantenimientos."
+        )
+    elif not eff_prods:
+        exec_narrative = (
+            f"El escenario actual <strong>{html.escape(source.get('name', 'personalizado'))}</strong> no cuenta con productos activos todavía. "
+            "Carga los archivos Excel de tu línea o ingresa los SKUs y matriz de cambios para calcular el plan maestro óptimo."
+        )
+    elif result:
+        exec_narrative = (
+            f"Para el escenario <strong>{html.escape(source.get('name', 'cargado'))}</strong>, la secuenciación matemática "
+            f"óptima programa <strong>{len(eff_prods)} referencias</strong> cubriendo una demanda total de "
+            f"<strong>{pretty(total_dem)} cartones</strong> con <strong>{pretty(opt_setup_mins, 0)} minutos</strong> de cambio de formato "
+            f"({opt_setup_mins/60.0:.1f} h). El plan programado requiere <strong>{used_shifts_real} de {avail_shifts_cal} turnos disponibles</strong> "
+            f"({tot_occ_pct:.1f}% de capacidad instalada), asegurando cumplimiento de entrega y reservando <strong>{free_shifts_real} turnos de holgura operativa</strong>."
+        )
+    else:
+        exec_narrative = (
+            f"Escenario <strong>{html.escape(source.get('name', 'de producción'))}</strong> con "
+            f"<strong>{len(eff_prods)} referencias</strong> y <strong>{pretty(total_dem)} cartones</strong> de demanda programada."
+        )
+
+    st.markdown(f"""
+    <div class="editorial-box">
+        <h2>{exec_title}</h2>
+        <div style="font-size:13.5px;color:#cbd5e1;font-weight:500;margin-bottom:10px;">{exec_subtitle}</div>
+        <p>{exec_narrative}</p>
+    </div>
+    """, unsafe_allow_html=True)
 
     # Executive Metric Cards
     m1, m2, m3, m4 = st.columns(4)
@@ -276,14 +402,18 @@ with tabs[0]:
             name=row["Segmento"],
             orientation="h",
             marker=dict(color=row["Color"]),
-            text=f"<b>{row['Segmento']}</b><br>{row['Porcentaje']:.1f}% · {row['Turnos']:.2f} turnos ({row['Minutos']:,.0f} min)",
-            textposition="inside",
-            insidetextanchor="middle",
-            hovertemplate="<b>%{y}</b><br>" + row["Segmento"] + ": %{x:.1f}%<br>Turnos: " + f"{row['Turnos']:.2f}" + "<br>Minutos: " + f"{row['Minutos']:,.0f}" + "<extra></extra>"
+            textposition="none",
+            hovertemplate=(
+                f"<b>{row['Segmento']}</b><br>"
+                f"Participación: <b>{row['Porcentaje']:.1f}%</b><br>"
+                f"Turnos equivalentes: <b>{row['Turnos']:.2f} turnos</b><br>"
+                f"Tiempo de máquina: <b>{pretty(row['Minutos'], 0)} min</b> ({(row['Minutos']/60.0):.1f} h)"
+                "<extra></extra>"
+            )
         ))
     fig_cap.update_layout(
         barmode="stack",
-        height=140,
+        height=90,
         margin=dict(l=10, r=10, t=10, b=10),
         xaxis=dict(showgrid=False, range=[0, 100], ticksuffix="%", title=""),
         yaxis=dict(showticklabels=False),
@@ -292,6 +422,50 @@ with tabs[0]:
         plot_bgcolor="#ffffff",
     )
     st.plotly_chart(fig_cap, width="stretch")
+
+    # High-legibility metric chips below the horizontal capacity bar
+    st.markdown(f"""
+    <div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(260px, 1fr));gap:14px;margin-top:10px;margin-bottom:24px;">
+        <div style="background:white;border:1px solid #e2e8f0;border-left:5px solid #1b7a4b;border-radius:10px;padding:14px 18px;box-shadow:0 1px 3px rgba(0,0,0,0.03);">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px;">
+                <span style="font-size:13px;font-weight:700;color:#166534;letter-spacing:0.02em;">🟢 PRODUCCIÓN NETA</span>
+                <span style="font-size:20px;font-weight:800;color:#1b7a4b;">{prod_occ_pct:.1f}%</span>
+            </div>
+            <div style="font-size:14px;font-weight:600;color:#0f172a;margin-bottom:3px;">
+                {prod_turns_calc:.2f} turnos <span style="font-size:13px;font-weight:400;color:#64748b;">({pretty(net_prod_mins, 0)} min · {net_prod_mins/60.0:.1f} h)</span>
+            </div>
+            <div style="font-size:12px;color:#64748b;">
+                Tiempo efectivo de envasado a velocidad de máquina
+            </div>
+        </div>
+
+        <div style="background:white;border:1px solid #fed7aa;border-left:5px solid #d97706;border-radius:10px;padding:14px 18px;box-shadow:0 1px 3px rgba(0,0,0,0.03);">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px;">
+                <span style="font-size:13px;font-weight:700;color:#9a3412;letter-spacing:0.02em;">🟠 CAMBIOS DE FORMATO</span>
+                <span style="font-size:20px;font-weight:800;color:#d97706;">{setup_occ_pct:.1f}%</span>
+            </div>
+            <div style="font-size:14px;font-weight:600;color:#0f172a;margin-bottom:3px;">
+                {setup_turns_calc:.2f} turnos <span style="font-size:13px;font-weight:400;color:#64748b;">({pretty(opt_setup_mins, 0)} min · {opt_setup_mins/60.0:.1f} h)</span>
+            </div>
+            <div style="font-size:12px;color:#64748b;">
+                Tiempos de setup minimizados por el optimizador
+            </div>
+        </div>
+
+        <div style="background:white;border:1px solid #e2e8f0;border-left:5px solid #64748b;border-radius:10px;padding:14px 18px;box-shadow:0 1px 3px rgba(0,0,0,0.03);">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px;">
+                <span style="font-size:13px;font-weight:700;color:#334155;letter-spacing:0.02em;">⚪ CAPACIDAD LIBRE (HOLGURA)</span>
+                <span style="font-size:20px;font-weight:800;color:#475569;">{free_occ_pct:.1f}%</span>
+            </div>
+            <div style="font-size:14px;font-weight:600;color:#0f172a;margin-bottom:3px;">
+                {free_turns_calc:.2f} turnos <span style="font-size:13px;font-weight:400;color:#64748b;">({pretty(free_turns_calc * 480.0, 0)} min · {(free_turns_calc * 480.0)/60.0:.1f} h)</span>
+            </div>
+            <div style="font-size:12px;color:#64748b;">
+                Colchón operativo para absorber paradas o contingencias
+            </div>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
 
     st.write("")
     st.markdown("#### Análisis ABC / Pareto de carga de fabricación")
@@ -1075,64 +1249,196 @@ with tabs[6]:
 # TAB 8: ESCALAMIENTO A TODA LA PLANTA (HOJA 13)
 # ---------------------------------------------------------------------------
 with tabs[7]:
-    st.subheader("Módulo de Escalamiento: Qué falta para llevarlo a toda la planta")
-    st.markdown("""
-    Respuesta técnica estructurada (basada en la **Hoja 13 del modelo maestro**): Requerimientos de datos, impactos matemáticos y nivel de criticidad para extender este planificador desde la máquina Volpak 4 a todas las líneas de envasado de la fábrica.
-    """)
+    if is_volpak:
+        st.subheader("Módulo de Escalamiento: Qué falta para llevarlo a toda la planta")
+        st.markdown("""
+        Respuesta técnica estructurada (basada en la **Hoja 13 del modelo maestro**): ¿Qué información adicional hace falta para escalar el ejercicio de Volpak 4 a las demás líneas de la planta? Requerimientos de datos, impactos matemáticos y nivel de criticidad para extender este planificador desde la máquina Volpak 4 a todas las líneas de envasado de la fábrica.
+        """)
 
-    # Roadmap Metric Cards
-    crit_cols = st.columns(4)
-    all_scale = get_scaling_data("TODOS")
-    n_bloq = sum(all_scale["criticality"] == "BLOQUEANTE")
-    n_alto = sum(all_scale["criticality"] == "ALTO IMPACTO")
-    n_ref = sum(all_scale["criticality"] == "REFINAMIENTO")
+        # Roadmap Metric Cards
+        crit_cols = st.columns(4)
+        all_scale = get_scaling_data("TODOS")
+        n_bloq = sum(all_scale["criticality"] == "BLOQUEANTE")
+        n_alto = sum(all_scale["criticality"] == "ALTO IMPACTO")
+        n_ref = sum(all_scale["criticality"] == "REFINAMIENTO")
 
-    crit_cols[0].metric("Total Requerimientos", len(all_scale))
-    crit_cols[1].metric("Bloqueantes (Rojo)", n_bloq, help="Sin estos datos es imposible modelar las demás líneas")
-    crit_cols[2].metric("Alto Impacto (Amarillo)", n_alto, help="Modifican significativamente el plan o factibilidad")
-    crit_cols[3].metric("Refinamiento (Verde)", n_ref, help="Optimizan costos monetarios o inventarios")
+        crit_cols[0].metric("Total Requerimientos", len(all_scale))
+        crit_cols[1].metric("Bloqueantes (Rojo)", n_bloq, help="Sin estos datos es imposible modelar las demás líneas")
+        crit_cols[2].metric("Alto Impacto (Amarillo)", n_alto, help="Modifican significativamente el plan o factibilidad")
+        crit_cols[3].metric("Refinamiento (Verde)", n_ref, help="Optimizan costos monetarios o inventarios")
 
-    st.write("")
-    # Interactive filters
-    f_col1, f_col2 = st.columns([2, 3])
-    filter_choice = f_col1.radio(
-        "Filtrar por nivel de criticidad:",
-        ["TODOS", "BLOQUEANTE", "ALTO IMPACTO", "REFINAMIENTO"],
-        horizontal=True,
-        key=key("scale_filter")
-    )
-    search_query = f_col2.text_input("🔍 Buscar en requerimientos:", placeholder="ej. alérgenos, máquina, inventario...", key=key("scale_search"))
-
-    filtered_scale = get_scaling_data(filter_choice)
-    if search_query:
-        q = search_query.lower()
-        filtered_scale = filtered_scale[
-            filtered_scale["item"].str.lower().str.contains(q, regex=False) |
-            filtered_scale["reason"].str.lower().str.contains(q, regex=False) |
-            filtered_scale["impact"].str.lower().str.contains(q, regex=False)
-        ]
-
-    st.write("")
-    for _, item in filtered_scale.iterrows():
-        c_badge = (
-            f'<span class="badge-bloqueante">BLOQUEANTE</span>' if item["criticality"] == "BLOQUEANTE"
-            else (f'<span class="badge-alto">ALTO IMPACTO</span>' if item["criticality"] == "ALTO IMPACTO"
-                  else f'<span class="badge-refinamiento">REFINAMIENTO</span>')
+        st.write("")
+        # Interactive filters
+        f_col1, f_col2 = st.columns([2, 3])
+        filter_choice = f_col1.radio(
+            "Filtrar por nivel de criticidad:",
+            ["TODOS", "BLOQUEANTE", "ALTO IMPACTO", "REFINAMIENTO"],
+            horizontal=True,
+            key=key("scale_filter")
         )
-        st.markdown(f"""
-        <div style="background:white;border:1px solid #e2e8f0;border-left:5px solid {item['color']};border-radius:8px;padding:16px 20px;margin-bottom:12px;box-shadow:0 1px 3px rgba(0,0,0,0.02);">
-            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
-                <span style="font-size:16px;font-weight:700;color:#0f172a;">#{item['num']} · {item['item']}</span>
-                {c_badge}
+        search_query = f_col2.text_input("🔍 Buscar en requerimientos:", placeholder="ej. alérgenos, máquina, inventario...", key=key("scale_search"))
+
+        filtered_scale = get_scaling_data(filter_choice)
+        if search_query:
+            q = search_query.lower()
+            filtered_scale = filtered_scale[
+                filtered_scale["item"].str.lower().str.contains(q, regex=False) |
+                filtered_scale["reason"].str.lower().str.contains(q, regex=False) |
+                filtered_scale["impact"].str.lower().str.contains(q, regex=False)
+            ]
+
+        st.write("")
+        for _, item in filtered_scale.iterrows():
+            c_badge = (
+                f'<span class="badge-bloqueante">BLOQUEANTE</span>' if item["criticality"] == "BLOQUEANTE"
+                else (f'<span class="badge-alto">ALTO IMPACTO</span>' if item["criticality"] == "ALTO IMPACTO"
+                      else f'<span class="badge-refinamiento">REFINAMIENTO</span>')
+            )
+            st.markdown(f"""
+            <div style="background:white;border:1px solid #e2e8f0;border-left:5px solid {item['color']};border-radius:8px;padding:16px 20px;margin-bottom:12px;box-shadow:0 1px 3px rgba(0,0,0,0.02);">
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+                    <span style="font-size:16px;font-weight:700;color:#0f172a;">#{item['num']} · {item['item']}</span>
+                    {c_badge}
+                </div>
+                <div style="font-size:14px;color:#334155;margin-bottom:6px;">
+                    <strong>¿Por qué se necesita?</strong> {item['reason']}
+                </div>
+                <div style="font-size:13.5px;color:#64748b;">
+                    <strong>¿Qué cambia en el modelo matemático?</strong> {item['impact']}
+                </div>
             </div>
-            <div style="font-size:14px;color:#334155;margin-bottom:6px;">
-                <strong>¿Por qué se necesita?</strong> {item['reason']}
-            </div>
-            <div style="font-size:13.5px;color:#64748b;">
-                <strong>¿Qué cambia en el modelo matemático?</strong> {item['impact']}
-            </div>
-        </div>
-        """, unsafe_allow_html=True)
+            """, unsafe_allow_html=True)
+    else:
+        st.subheader("Marco de Madurez Operativa: Checklist de Viabilidad para Planta Real")
+        st.markdown("""
+        Para implementar con éxito este optimizador en una planta real, se debe diagnosticar la disponibilidad de las dimensiones clave de datos maestros.
+        Evalúa a continuación el estado de cada dimensión en tu planta para calcular el **Índice de Madurez de Despliegue Industrial** y verificar qué restricciones están listas para programar.
+        """)
+
+        all_scale = get_scaling_data("TODOS")
+
+        # Read current checklist responses
+        chk_options = ["✅ Sí (Disponible)", "🔄 En proceso", "❌ No disponible"]
+        chk_responses = {}
+        for _, it in all_scale.iterrows():
+            n = int(it["num"])
+            k = f"maturity_chk_{n}"
+            if k in st.session_state:
+                chk_responses[n] = st.session_state[k]
+            else:
+                def_stat = DEFAULT_MATURITY_RESPONSES.get(n, "EN_PROCESO")
+                chk_responses[n] = "✅ Sí (Disponible)" if def_stat == "SI" else ("🔄 En proceso" if def_stat == "EN_PROCESO" else "❌ No disponible")
+
+        mat = calculate_maturity_score(chk_responses)
+
+        # Maturity KPIs
+        mat_cols = st.columns(4)
+        mat_cols[0].metric("Índice de Madurez", f"{mat['score_pct']:.1f}%", f"{mat['earned_points']:.1f} / {mat['max_points']:.1f} pts")
+        mat_cols[1].metric("Disponibles (Sí)", f"{mat['count_si']} / {mat['total_items']}", delta="Datos listos" if mat['count_si'] > 0 else None, delta_color="normal")
+        mat_cols[2].metric("En Proceso", f"{mat['count_proceso']} / {mat['total_items']}", delta="En levantamiento", delta_color="off")
+        mat_cols[3].metric(
+            "No Disponibles",
+            f"{mat['count_no']} / {mat['total_items']}",
+            delta=f"{len(mat['blocking_missing'])} bloqueantes faltantes" if mat['blocking_missing'] else "0 bloqueantes pendientes",
+            delta_color="inverse" if mat['blocking_missing'] else "normal"
+        )
+
+        st.write("")
+        st.markdown(f"**Nivel de Madurez Operativa:** {mat['level']}")
+        st.progress(min(1.0, max(0.0, mat["score_pct"] / 100.0)))
+
+        if mat["blocking_missing"]:
+            missing_preview = ", ".join(mat["blocking_missing"][:3])
+            st.warning(f"⚠️ **Restricciones Bloqueantes Pendientes ({len(mat['blocking_missing'])}):** {missing_preview}. {mat['recommendation']}")
+        else:
+            st.success(f"🎯 **Viabilidad Asegurada:** ¡Todos los datos maestros bloqueantes están cubiertos! {mat['recommendation']}")
+
+        # Quick preset buttons
+        b1, b2, b3 = st.columns(3)
+        if b1.button("📋 Cargar diagnóstico típico (Mono-línea activa)", key=key("btn_preset_mono")):
+            for _, it in all_scale.iterrows():
+                n = int(it["num"])
+                def_stat = DEFAULT_MATURITY_RESPONSES.get(n, "EN_PROCESO")
+                st.session_state[f"maturity_chk_{n}"] = "✅ Sí (Disponible)" if def_stat == "SI" else ("🔄 En proceso" if def_stat == "EN_PROCESO" else "❌ No disponible")
+            st.rerun()
+
+        if b2.button("🌟 Simular planta de alta madurez (100% disponible)", key=key("btn_preset_full")):
+            for _, it in all_scale.iterrows():
+                n = int(it["num"])
+                st.session_state[f"maturity_chk_{n}"] = "✅ Sí (Disponible)"
+            st.rerun()
+
+        if b3.button("🔄 Reiniciar diagnóstico a 'En proceso'", key=key("btn_preset_reset")):
+            for _, it in all_scale.iterrows():
+                n = int(it["num"])
+                st.session_state[f"maturity_chk_{n}"] = "🔄 En proceso"
+            st.rerun()
+
+        st.write("")
+        # Interactive filters (Keep exact same label and key for tests)
+        f_col1, f_col2 = st.columns([2, 3])
+        filter_choice = f_col1.radio(
+            "Filtrar por nivel de criticidad:",
+            ["TODOS", "BLOQUEANTE", "ALTO IMPACTO", "REFINAMIENTO"],
+            horizontal=True,
+            key=key("scale_filter")
+        )
+        search_query = f_col2.text_input("🔍 Buscar en requerimientos:", placeholder="ej. alérgenos, máquina, inventario...", key=key("scale_search"))
+
+        filtered_scale = get_scaling_data(filter_choice)
+        if search_query:
+            q = search_query.lower()
+            filtered_scale = filtered_scale[
+                filtered_scale["item"].str.lower().str.contains(q, regex=False) |
+                filtered_scale["reason"].str.lower().str.contains(q, regex=False) |
+                filtered_scale["impact"].str.lower().str.contains(q, regex=False)
+            ]
+
+        st.write("")
+        for _, item in filtered_scale.iterrows():
+            item_n = int(item["num"])
+            c_badge = (
+                f'<span class="badge-bloqueante">BLOQUEANTE</span>' if item["criticality"] == "BLOQUEANTE"
+                else (f'<span class="badge-alto">ALTO IMPACTO</span>' if item["criticality"] == "ALTO IMPACTO"
+                      else f'<span class="badge-refinamiento">REFINAMIENTO</span>')
+            )
+            card_col1, card_col2 = st.columns([2.8, 1.2])
+            with card_col1:
+                st.markdown(f"""
+                <div style="background:white;border:1px solid #e2e8f0;border-left:5px solid {item['color']};border-radius:8px 0 0 8px;padding:14px 18px;min-height:115px;">
+                    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
+                        <span style="font-size:15px;font-weight:700;color:#0f172a;">#{item['num']} · {item['item']}</span>
+                        {c_badge}
+                    </div>
+                    <div style="font-size:13px;color:#334155;margin-bottom:4px;">
+                        <strong>¿Por qué se necesita?</strong> {item['reason']}
+                    </div>
+                    <div style="font-size:12.5px;color:#64748b;">
+                        <strong>Impacto matemático:</strong> {item['impact']}
+                    </div>
+                </div>
+                """, unsafe_allow_html=True)
+            with card_col2:
+                st.markdown("""<div style="height:6px;"></div>""", unsafe_allow_html=True)
+                chk_key = f"maturity_chk_{item_n}"
+                def_code = DEFAULT_MATURITY_RESPONSES.get(item_n, "EN_PROCESO")
+                def_lbl = "✅ Sí (Disponible)" if def_code == "SI" else ("🔄 En proceso" if def_code == "EN_PROCESO" else "❌ No disponible")
+                def_idx = chk_options.index(def_lbl)
+                if chk_key in st.session_state:
+                    st.radio(
+                        f"¿Tu planta cuenta con este dato? (#{item_n})",
+                        chk_options,
+                        key=chk_key,
+                        horizontal=False
+                    )
+                else:
+                    st.radio(
+                        f"¿Tu planta cuenta con este dato? (#{item_n})",
+                        chk_options,
+                        index=def_idx,
+                        key=chk_key,
+                        horizontal=False
+                    )
 
 st.write("")
 st.caption("Planificador de Fabricación · by: Sebastian Parra · Motor: Python + OR-Tools CP-SAT · Interfaz: Streamlit.")

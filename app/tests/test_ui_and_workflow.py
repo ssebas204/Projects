@@ -490,3 +490,83 @@ def test_app_mini_game_click_optimal_button_reaches_proven_optimum(demo):
     assert "840 minutos" in md_texts
 
 
+def test_app_mode_selector_and_scenario_transition():
+    """Verify that toggling between Volpak 4 and Nuevo Escenario works smoothly without error."""
+    app_path = str(Path(__file__).resolve().parents[1] / "app.py")
+    at = AppTest.from_file(app_path, default_timeout=30)
+    at.run()
+    assert not at.exception
+
+    # Find mode selector
+    mode_radios = [r for r in at.radio if "modo" in r.label.lower()]
+    assert len(mode_radios) == 1
+    mode_radio = mode_radios[0]
+    assert len(mode_radio.options) == 2
+
+    # Switch to Nuevo Escenario
+    custom_opt = [o for o in mode_radio.options if "Nuevo Escenario" in o][0]
+    mode_radio.set_value(custom_opt).run()
+    assert not at.exception
+    assert at.session_state["app_mode"] == custom_opt
+
+    # Check onboarding expander exists in new scenario mode
+    all_subheaders = [s.value for s in at.subheader]
+    all_expanders = [e.label for e in at.expander]
+    all_md = [m.value for m in at.markdown]
+    combined_texts = " ".join(all_subheaders + all_expanders + all_md)
+    assert "Marco de Madurez Operativa" in combined_texts or "nuevo escenario" in combined_texts.lower()
+
+    # Switch back to Volpak 4
+    volpak_opt = [o for o in mode_radio.options if "Volpak 4" in o][0]
+    mode_radio.set_value(volpak_opt).run()
+    assert not at.exception
+    assert at.session_state["app_mode"] == volpak_opt
+
+
+def test_app_executive_summary_title_and_chips():
+    """Verify elimination of old title and presence of new title and 3 legible capacity chips."""
+    app_path = str(Path(__file__).resolve().parents[1] / "app.py")
+    at = AppTest.from_file(app_path, default_timeout=30)
+    at.run()
+    assert not at.exception
+
+    md_texts = " ".join(m.value for m in at.markdown)
+    # Old informal title must be gone
+    assert "Trece horas de línea que nadie estaba contando" not in md_texts
+    # New executive title and subtitle must be present
+    assert "Plan Maestro de Fabricación y Secuenciación Óptima" in md_texts
+    assert "Programación matemática de producción mediante minimización de tiempos de cambio" in md_texts
+
+    # High legibility metric chips below capacity bar
+    assert "PRODUCCIÓN NETA" in md_texts
+    assert "CAMBIOS DE FORMATO" in md_texts
+    assert "CAPACIDAD LIBRE" in md_texts
+
+
+def test_app_scaling_tab_mode_adaptation():
+    """Verify that Tab 8 adapts between Volpak 4 Sheet 13 and Operational Maturity Checklist."""
+    app_path = str(Path(__file__).resolve().parents[1] / "app.py")
+    at = AppTest.from_file(app_path, default_timeout=30)
+    at.run()
+    assert not at.exception
+
+    # Default Volpak mode shows Volpak 4 question
+    md_texts_v4 = " ".join(m.value for m in at.markdown)
+    assert "escalar el ejercicio de Volpak 4" in md_texts_v4
+
+    # Switch to Custom mode
+    mode_radio = [r for r in at.radio if "modo" in r.label.lower()][0]
+    custom_opt = [o for o in mode_radio.options if "Nuevo Escenario" in o][0]
+    mode_radio.set_value(custom_opt).run()
+    assert not at.exception
+
+    # Now shows Maturity Checklist in subheaders
+    all_subheaders = [s.value for s in at.subheader]
+    all_md = [m.value for m in at.markdown]
+    combined_custom = " ".join(all_subheaders + all_md)
+    assert "Marco de Madurez Operativa: Checklist de Viabilidad para Planta Real" in combined_custom
+    # Metrics include maturity index
+    assert any("Madurez" in m.label for m in at.metric)
+
+
+
