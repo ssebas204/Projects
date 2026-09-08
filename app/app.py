@@ -83,6 +83,7 @@ def demo():
 def replace_scenario(value):
     st.session_state.source = value
     st.session_state.epoch += 1
+    st.session_state.game_sequence = []
     try:
         st.session_state.result = solve(value)
     except Exception:
@@ -171,53 +172,83 @@ with tabs[0]:
     </div>
     """, unsafe_allow_html=True)
 
+    # Dynamic KPI calculations
+    eff_prods = effective_products(source)
+    total_dem = sum(p.get("demand", 0) for p in eff_prods) if eff_prods else source.get("demand", 86331)
+    net_prod_mins = sum(p.get("demand", 0) * 480.0 / p.get("rate", 1) for p in eff_prods if p.get("rate", 0) > 0) if eff_prods else 27819.625384303745
+    opt_setup_mins = float(result.get("setup_minutes", 840.0)) if result else 840.0
+    
+    avail_shifts_cal = 74
+    if cfg.get("weekday_shifts") is not None:
+        import calendar as cal_mod
+        days_in_m = cal_mod.monthrange(cfg["year"], cfg["month"])[1]
+        avail_shifts_cal = sum(
+            cfg["weekday_shifts"] if date(cfg["year"], cfg["month"], d).weekday() < 5
+            else cfg["saturday_shifts"] if date(cfg["year"], cfg["month"], d).weekday() == 5
+            else cfg["sunday_shifts"]
+            for d in range(1, days_in_m + 1)
+        )
+    avail_mins_cal = avail_shifts_cal * (cfg.get("shift_hours", 8) * 60)
+    
+    used_shifts_real = len([s for s in result["shifts"] if s.get("production_minutes", 0) > 0 or s.get("setup_minutes", 0) > 0]) if result and "shifts" in result else 60
+    free_shifts_real = max(0, avail_shifts_cal - used_shifts_real)
+
+    tot_req_mins = net_prod_mins + opt_setup_mins
+    tot_occ_pct = (tot_req_mins / avail_mins_cal) * 100.0 if avail_mins_cal > 0 else 0.0
+    prod_occ_pct = (net_prod_mins / avail_mins_cal) * 100.0 if avail_mins_cal > 0 else 0.0
+    setup_occ_pct = (opt_setup_mins / avail_mins_cal) * 100.0 if avail_mins_cal > 0 else 0.0
+    free_occ_pct = max(0.0, 100.0 - prod_occ_pct - setup_occ_pct)
+    prod_turns_calc = net_prod_mins / 480.0
+    setup_turns_calc = opt_setup_mins / 480.0
+    free_turns_calc = max(0.0, avail_shifts_cal - (prod_turns_calc + setup_turns_calc))
+
     # Executive Metric Cards
     m1, m2, m3, m4 = st.columns(4)
     with m1:
         st.markdown(f"""
         <div class="exec-card">
             <div class="card-title">Demanda Programada</div>
-            <div class="card-value">{pretty(source.get('demand', 86331))} <span style="font-size:16px;color:#64748b;">ctn</span></div>
+            <div class="card-value">{pretty(total_dem)} <span style="font-size:16px;color:#64748b;">ctn</span></div>
             <div class="card-sub">100% de cumplimiento · 0 pendientes</div>
         </div>
         """, unsafe_allow_html=True)
 
     with m2:
-        st.markdown("""
+        st.markdown(f"""
         <div class="exec-card">
             <div class="card-title">Tiempo de Cambios</div>
-            <div class="card-value">840 min <span style="font-size:16px;color:#64748b;">(14,0 h)</span></div>
+            <div class="card-value">{pretty(opt_setup_mins, 0)} min <span style="font-size:16px;color:#64748b;">({opt_setup_mins/60.0:.1f} h)</span></div>
             <div class="card-sub"><span class="optimo-badge">★ Óptimo Demostrado</span></div>
         </div>
         """, unsafe_allow_html=True)
 
     with m3:
-        st.markdown("""
+        st.markdown(f"""
         <div class="exec-card">
             <div class="card-title">Turnos Utilizados</div>
-            <div class="card-value">59,7 / 74 <span style="font-size:16px;color:#16a34a;">(14,3 libres)</span></div>
+            <div class="card-value">{used_shifts_real} / {avail_shifts_cal} <span style="font-size:16px;color:#16a34a;">({free_shifts_real} libres)</span></div>
             <div class="card-sub">Cierre anticipado: <strong>24 de septiembre</strong></div>
         </div>
         """, unsafe_allow_html=True)
 
     with m4:
-        st.markdown("""
+        st.markdown(f"""
         <div class="exec-card">
             <div class="card-title">Ocupación de Capacidad</div>
-            <div class="card-value">80,7% <span style="font-size:16px;color:#64748b;">total</span></div>
-            <div class="card-sub">78,3% producción · 2,4% cambios</div>
+            <div class="card-value">{tot_occ_pct:.1f}% <span style="font-size:16px;color:#64748b;">total</span></div>
+            <div class="card-sub">{prod_occ_pct:.1f}% producción · {setup_occ_pct:.1f}% cambios</div>
         </div>
         """, unsafe_allow_html=True)
 
     st.write("")
     st.markdown("#### Balance y ocupación de la capacidad instalada")
-    st.caption("Régimen estándar Lunes a Sábado: 74 turnos disponibles (35.520 minutos). Distribución calculada con tasas reales de empaque.")
+    st.caption(f"Régimen estándar Lunes a Sábado: {avail_shifts_cal} turnos disponibles ({avail_mins_cal:,.0f} minutos). Distribución calculada con tasas reales de empaque.")
 
     # Capacity Occupancy Stacked Bar Chart
     cap_data = pd.DataFrame([
-        {"Categoría": "Capacidad L-S (74 turnos)", "Segmento": "Producción neta", "Turnos": 57.96, "Minutos": 27819.6, "Porcentaje": 78.3, "Color": "#1b7a4b"},
-        {"Categoría": "Capacidad L-S (74 turnos)", "Segmento": "Cambios de formato", "Turnos": 1.75, "Minutos": 840.0, "Porcentaje": 2.4, "Color": "#d97706"},
-        {"Categoría": "Capacidad L-S (74 turnos)", "Segmento": "Capacidad libre", "Turnos": 14.29, "Minutos": 6860.4, "Porcentaje": 19.3, "Color": "#94a3b8"},
+        {"Categoría": f"Capacidad L-S ({avail_shifts_cal} turnos)", "Segmento": "Producción neta", "Turnos": prod_turns_calc, "Minutos": net_prod_mins, "Porcentaje": prod_occ_pct, "Color": "#1b7a4b"},
+        {"Categoría": f"Capacidad L-S ({avail_shifts_cal} turnos)", "Segmento": "Cambios de formato", "Turnos": setup_turns_calc, "Minutos": opt_setup_mins, "Porcentaje": setup_occ_pct, "Color": "#d97706"},
+        {"Categoría": f"Capacidad L-S ({avail_shifts_cal} turnos)", "Segmento": "Capacidad libre", "Turnos": free_turns_calc, "Minutos": free_turns_calc * 480.0, "Porcentaje": free_occ_pct, "Color": "#94a3b8"},
     ])
 
     fig_cap = go.Figure()
@@ -397,14 +428,17 @@ with tabs[1]:
         key=key("matrix_order_toggle")
     )
     order_choice = "family" if "Familia" in m_mode else "code"
-
-    df_heatmap, ordered_ids, labels = get_ordered_matrix({"products": products, "matrix": source["matrix"]}, order_by=order_choice)
+    current_mat = st.session_state.get(key("matrix_latest"), source["matrix"])
+    df_heatmap, ordered_ids, labels = get_ordered_matrix({"products": products, "matrix": current_mat}, order_by=order_choice)
+    max_z = max(180.0, float(df_heatmap.values.max()) if df_heatmap.values.size > 0 else 180.0)
 
     # Plotly Heatmap
     fig_hm = go.Figure(data=go.Heatmap(
         z=df_heatmap.values,
         x=labels,
         y=labels,
+        zmin=0,
+        zmax=max_z,
         colorscale=[
             [0.0, "#10b981"],    # 0 min: Green
             [0.66, "#f59e0b"],   # 120 min: Amber
@@ -684,6 +718,10 @@ with tabs[4]:
     families = detect_families(source)
     block_dist = get_block_matrix(source, families)
     fam_by_id = {f["id"]: f for f in families}
+    valid_fam_ids = {f["id"] for f in families}
+    
+    # Filter any stale IDs that don't exist in current scenario
+    st.session_state.game_sequence = [fid for fid in st.session_state.game_sequence if fid in valid_fam_ids]
 
     # Control buttons
     btn_c1, btn_c2, btn_c3, btn_c4 = st.columns(4)
@@ -692,8 +730,12 @@ with tabs[4]:
         st.rerun()
 
     if btn_c2.button("★ Cargar secuencia óptima (840 min)"):
-        # The proven optimal sequence: 3533 -> 3643 -> 15564 -> 5998 -> 6743 -> 6639 -> 3278 -> 3757
-        st.session_state.game_sequence = ["3533", "3643", "15564", "5998", "6743", "6639", "3278", "3757"]
+        # The proven optimal sequence for Volpak 4 demo
+        known_opt = ["3533", "3643", "15564", "5998", "6743", "6639", "3278", "3757"]
+        if all(k in valid_fam_ids for k in known_opt) and len(known_opt) == len(families):
+            st.session_state.game_sequence = known_opt
+        else:
+            st.session_state.game_sequence = [f["id"] for f in families]
         st.rerun()
 
     if btn_c3.button("🎲 Orden aleatorio"):
@@ -711,9 +753,21 @@ with tabs[4]:
     chosen_ids = st.session_state.game_sequence
     available_fams = [f for f in families if f["id"] not in chosen_ids]
 
+    # Visual representation of currently built sequence
     st.write("")
+    if chosen_ids:
+        st.markdown("##### Secuencia construida:")
+        chips_html = []
+        for step_idx, fid in enumerate(chosen_ids, 1):
+            fname = fam_by_id.get(fid, {}).get("name", fid)
+            f_skus = len(fam_by_id.get(fid, {}).get("members", []))
+            chips_html.append(f'<span class="family-chip"><strong>#{step_idx}</strong> {html.escape(fname)} <span style="color:#64748b;font-size:11px;">({f_skus} SKU)</span></span>')
+        st.markdown('<div style="margin-bottom:12px;">' + ' <span style="color:#94a3b8;font-weight:700;">→</span> '.join(chips_html) + '</div>', unsafe_allow_html=True)
+    else:
+        st.info("Secuencia vacía. Haz clic en una de las familias abajo para definir el primer bloque de tu secuencia.")
+
     if available_fams:
-        st.markdown(f"**Paso {len(chosen_ids) + 1} de 8:** Haz clic para agregar la siguiente familia:")
+        st.markdown(f"**Paso {len(chosen_ids) + 1} de {len(families)}:** Haz clic para agregar la siguiente familia:")
         cols = st.columns(min(len(available_fams), 4))
         for idx, fam in enumerate(available_fams):
             col = cols[idx % len(cols)]
@@ -722,7 +776,7 @@ with tabs[4]:
                 st.session_state.game_sequence.append(fam["id"])
                 st.rerun()
     else:
-        st.success("✓ ¡Has seleccionado las 8 familias tecnológicas!")
+        st.success(f"✓ ¡Has seleccionado las {len(families)} familias tecnológicas!")
 
     # Live Evaluation Scoreboard
     eval_res = evaluate_family_sequence(chosen_ids, families, block_dist)
@@ -733,16 +787,28 @@ with tabs[4]:
     with sc1:
         st.metric("Familias en la Secuencia", f"{len(chosen_ids)} / {len(families)}")
     with sc2:
-        st.metric("Minutos de Cambio Acumulados", f"{eval_res['total_minutes']:.0f} min", delta=f"{eval_res['diff_minutes']:+.0f} min vs óptimo" if len(chosen_ids) > 1 else None, delta_color="inverse")
+        if eval_res["is_complete"]:
+            d_min_label = f"{eval_res['diff_minutes']:+.0f} min vs óptimo"
+        elif len(chosen_ids) > 1:
+            d_min_label = f"+{eval_res['diff_minutes']:.0f} min penalización" if eval_res['diff_minutes'] > 0 else "0 min penalización"
+        else:
+            d_min_label = None
+        st.metric("Minutos de Cambio Acumulados", f"{eval_res['total_minutes']:.0f} min", delta=d_min_label, delta_color="inverse")
     with sc3:
-        st.metric("Horas de Cambio", f"{eval_res['total_hours']:.1f} h", delta=f"{eval_res['diff_hours']:+.1f} h" if len(chosen_ids) > 1 else None, delta_color="inverse")
+        if eval_res["is_complete"]:
+            d_hr_label = f"{eval_res['diff_hours']:+.1f} h vs óptimo"
+        elif len(chosen_ids) > 1:
+            d_hr_label = f"+{eval_res['diff_hours']:.1f} h penalización" if eval_res['diff_hours'] > 0 else "0 h penalización"
+        else:
+            d_hr_label = None
+        st.metric("Horas de Cambio", f"{eval_res['total_hours']:.1f} h", delta=d_hr_label, delta_color="inverse")
 
     if eval_res.get("is_optimal", False):
-        st.markdown("""
+        st.markdown(f"""
         <div style="background:#dcfce7;border:1px solid #86efac;color:#166534;padding:14px 18px;border-radius:8px;margin-top:12px;">
             <h4 style="margin:0;color:#166534;">🎉 ¡FELICITACIONES! ¡ALCANZASTE EL ÓPTIMO DEMOSTRADO!</h4>
             <p style="margin:4px 0 0 0;font-size:14px;">
-                Lograste exactamente <strong>840 minutos (14,0 h)</strong> con 7 transiciones limpias de 120 minutos, sin incurrir en ninguna incompatibilidad tecnológica de 180 min.
+                Lograste exactamente <strong>{eval_res['total_minutes']:.0f} minutos ({eval_res['total_hours']:.1f} h)</strong> con {len(eval_res['transitions'])} transiciones limpias de 120 minutos, sin incurrir en ninguna incompatibilidad tecnológica de 180 min.
             </p>
         </div>
         """, unsafe_allow_html=True)
@@ -751,7 +817,7 @@ with tabs[4]:
         <div style="background:#fef2f2;border:1px solid #fca5a5;color:#991b1b;padding:14px 18px;border-radius:8px;margin-top:12px;">
             <h4 style="margin:0;color:#991b1b;">⚠️ Secuencia Completa con Penalización: +{eval_res['diff_minutes']:.0f} min (+{eval_res['diff_hours']:.1f} h perdidas)</h4>
             <p style="margin:4px 0 0 0;font-size:14px;">
-                Tu secuencia cuesta <strong>{eval_res['total_minutes']:.0f} min</strong> vs los <strong>840 min óptimos</strong>. Algunos saltos entre familias incompatibles generaron cambios de 180 min en vez de 120 min.
+                Tu secuencia cuesta <strong>{eval_res['total_minutes']:.0f} min</strong> vs los <strong>{eval_res['target_optimal_minutes']:.0f} min óptimos</strong>. Algunos saltos entre familias incompatibles generaron cambios de 180 min en vez de 120 min.
             </p>
         </div>
         """, unsafe_allow_html=True)
@@ -781,9 +847,10 @@ with tabs[5]:
     Compara el régimen estándar **Lunes a Sábado (74 turnos)** contra el régimen extraordinario **Domingo a Domingo (90 turnos)**.
     """)
 
-    base_net_mins = 27819.625384303745
-    base_setup_mins = 840.0
-    base_dem = 86331
+    eff_sim = effective_products(source)
+    base_dem = sum(p.get("demand", 0) for p in eff_sim) if eff_sim else 86331
+    base_net_mins = sum(p.get("demand", 0) * 480.0 / p.get("rate", 1) for p in eff_sim if p.get("rate", 0) > 0) if eff_sim else 27819.625384303745
+    base_setup_mins = float(result.get("setup_minutes", 840.0)) if result else 840.0
 
     delta_pct = st.slider(
         "Variación porcentual de la demanda total (%)",
@@ -812,7 +879,7 @@ with tabs[5]:
         <div style="background:#fef3c7;border:1px solid #fcd34d;color:#92400e;padding:16px 20px;border-radius:10px;margin-bottom:16px;">
             <h4 style="margin:0 0 4px 0;color:#92400e;">🟡 {sens['status_label']}</h4>
             <p style="margin:0;font-size:14.5px;">
-                Déficit sobre L-S: <strong>{abs(sens['slack_ls_shifts']):.2f} turnos excedentes</strong>. Se superó el punto de quiebre L-S (+24,7%). Cabe habilitando domingos, con una holgura de <strong>{90 - sens['shifts_required']:.2f} turnos libres</strong> en régimen D-D.
+                Déficit sobre L-S: <strong>{abs(sens['slack_ls_shifts']):.2f} turnos excedentes</strong>. Se superó el punto de quiebre L-S (+{sens['ls_breakeven_pct']:.1f}%). Cabe habilitando domingos, con una holgura de <strong>{90 - sens['shifts_required']:.2f} turnos libres</strong> en régimen D-D.
             </p>
         </div>
         """, unsafe_allow_html=True)
@@ -821,7 +888,7 @@ with tabs[5]:
         <div style="background:#fee2e2;border:1px solid #fca5a5;color:#991b1b;padding:16px 20px;border-radius:10px;margin-bottom:16px;">
             <h4 style="margin:0 0 4px 0;color:#991b1b;">🔴 {sens['status_label']}</h4>
             <p style="margin:0;font-size:14.5px;">
-                Déficit insuperable en planta: <strong>{sens['deficit_shifts']:.2f} turnos faltantes</strong> sobre el tope de 90 turnos. Se superó el punto de quiebre D-D (+52,3%). Se requiere maquila externa o reasignar referencias a otra línea.
+                Déficit insuperable en planta: <strong>{sens['deficit_shifts']:.2f} turnos faltantes</strong> sobre el tope de 90 turnos. Se superó el punto de quiebre D-D (+{sens['dd_breakeven_pct']:.1f}%). Se requiere maquila externa o reasignar referencias a otra línea.
             </p>
         </div>
         """, unsafe_allow_html=True)
@@ -1010,9 +1077,9 @@ with tabs[7]:
     if search_query:
         q = search_query.lower()
         filtered_scale = filtered_scale[
-            filtered_scale["item"].str.lower().str.contains(q) |
-            filtered_scale["reason"].str.lower().str.contains(q) |
-            filtered_scale["impact"].str.lower().str.contains(q)
+            filtered_scale["item"].str.lower().str.contains(q, regex=False) |
+            filtered_scale["reason"].str.lower().str.contains(q, regex=False) |
+            filtered_scale["impact"].str.lower().str.contains(q, regex=False)
         ]
 
     st.write("")

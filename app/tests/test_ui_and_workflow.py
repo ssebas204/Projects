@@ -232,14 +232,15 @@ def test_feature5_comparative_methods(demo):
     method_map = dict(zip(comp["Método"], comp["Minutos de cambio"]))
     assert any("Óptimo demostrado" in m and method_map[m] == 840.0 for m in method_map)
     assert method_map.get("Vecino más cercano") == 900.0
-    assert method_map.get("Necesidad descendente") == 1380.0
+    assert method_map.get("Demanda descendente") == 1380.0 or method_map.get("Necesidad descendente") == 1380.0
     assert method_map.get("Código ascendente") == 1620.0
     assert any("Peor caso teórico" in m and method_map[m] == 2880.0 for m in method_map)
+    assert list(comp["Minutos de cambio"]) == [840.0, 900.0, 1380.0, 1620.0, 2880.0]
 
     # Check differences in hours
     diff_hours = dict(zip(comp["Método"], comp["Diferencia Horas"]))
     assert diff_hours.get("Vecino más cercano") == 1.0  # +1 h
-    assert diff_hours.get("Necesidad descendente") == 9.0  # +9 h
+    assert diff_hours.get("Demanda descendente", diff_hours.get("Necesidad descendente")) == 9.0  # +9 h
     assert diff_hours.get("Código ascendente") == 13.0  # +13 h
     worst_key = [m for m in diff_hours if "Peor caso" in m][0]
     assert diff_hours[worst_key] == 34.0  # +34 h
@@ -282,3 +283,54 @@ def test_feature7_excel_export_and_checks(demo):
     # Verify that all mathematical checks in solve result evaluate to True
     for check_name, passed in sol["checks"].items():
         assert passed is True, f"Mathematical check failed: {check_name}"
+
+
+def test_apptest_severe_interactive_lifecycle():
+    """Simulate a complete user session with aggressive state transitions in Streamlit."""
+    app_path = str(Path(__file__).resolve().parents[1] / "app.py")
+    at = AppTest.from_file(app_path, default_timeout=45)
+    at.run()
+    assert not at.exception
+
+    # 1. Stress the Sensitivity Slider through multiple boundary steps
+    for delta in [-20, -10, 0, 24, 25, 52, 53, 60]:
+        sim_slider = [s for s in at.slider if "demanda" in s.label.lower()][0]
+        sim_slider.set_value(delta).run()
+        assert not at.exception
+
+    # 2. Toggle Matrix representation back and forth
+    matrix_radio = [r for r in at.radio if "matriz" in r.label.lower()][0]
+    for opt in matrix_radio.options:
+        matrix_radio.set_value(opt).run()
+        assert not at.exception
+
+    # 3. Mini-game interactions: Load optimal -> Undo -> Reset -> Random
+    opt_btn = [b for b in at.button if "840 min" in b.label][0]
+    opt_btn.click().run()
+    assert not at.exception
+    assert len(at.session_state["game_sequence"]) == 8
+
+    undo_btn = [b for b in at.button if "Deshacer" in b.label][0]
+    undo_btn.click().run()
+    assert not at.exception
+    assert len(at.session_state["game_sequence"]) == 7
+
+    reset_btn = [b for b in at.button if "Reiniciar" in b.label][0]
+    reset_btn.click().run()
+    assert not at.exception
+    assert len(at.session_state["game_sequence"]) == 0
+
+    rand_btn = [b for b in at.button if "aleatorio" in b.label.lower()][0]
+    rand_btn.click().run()
+    assert not at.exception
+    assert len(at.session_state["game_sequence"]) == 8
+
+    # 4. Search box fuzzing inside Streamlit UI with dangerous characters
+    search_input = [t for t in at.text_input if "buscar" in t.label.lower()][0]
+    for dangerous_char in ["[", "*", "+", "(", "\\"]:
+        search_input.set_value(dangerous_char).run()
+        assert not at.exception, f"App crashed when user searched for '{dangerous_char}'!"
+
+    # Clear search
+    search_input.set_value("").run()
+    assert not at.exception

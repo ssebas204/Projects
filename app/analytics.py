@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import copy
 import json
+from datetime import datetime
 from decimal import Decimal
 from fractions import Fraction
 from pathlib import Path
@@ -48,13 +49,21 @@ def detect_families(scenario: Dict[str, Any]) -> List[Dict[str, Any]]:
     matrix = scenario.get("matrix", {})
     ids = [str(p["id"]) for p in products]
 
+    def is_zero_cost(val: Any) -> bool:
+        if val is None:
+            return False
+        try:
+            return float(val) == 0.0
+        except (ValueError, TypeError):
+            return False
+
     adj = {i: set() for i in ids}
     for a in ids:
         for b in ids:
             if a != b:
                 val_ab = matrix.get(f"{a}|{b}")
                 val_ba = matrix.get(f"{b}|{a}")
-                if val_ab == 0 and (val_ba == 0 or val_ba is None):
+                if is_zero_cost(val_ab) and is_zero_cost(val_ba):
                     adj[a].add(b)
                     adj[b].add(a)
 
@@ -126,13 +135,25 @@ def get_block_matrix(scenario: Dict[str, Any], families: List[Dict[str, Any]]) -
 def evaluate_family_sequence(
     sequence: List[str],
     families: List[Dict[str, Any]],
-    block_dist: Dict[Tuple[str, str], float]
+    block_dist: Dict[Tuple[str, str], float],
+    target_optimal_minutes: Optional[float] = None
 ) -> Dict[str, Any]:
     """Evaluate a user-constructed sequence of family IDs.
     
-    Returns total minutes, hours, transitions detail, comparison vs 840 min optimum.
+    Returns total minutes, hours, transitions detail, comparison vs optimum.
     """
     fam_by_id = {f["id"]: f for f in families}
+    
+    # Compute off-diagonal minimal transition cost
+    off_diag_costs = [
+        cost for (f1, f2), cost in block_dist.items()
+        if f1 != f2 and cost > 0
+    ]
+    min_inter_cost = min(off_diag_costs) if off_diag_costs else 120.0
+    
+    if target_optimal_minutes is None:
+        target_optimal_minutes = (len(families) - 1) * min_inter_cost if len(families) > 1 else 0.0
+
     if not sequence or len(sequence) < 2:
         return {
             "total_minutes": 0.0,
@@ -143,7 +164,8 @@ def evaluate_family_sequence(
             "is_optimal": False,
             "is_complete": False,
             "count": len(sequence),
-            "total_families": len(families)
+            "total_families": len(families),
+            "target_optimal_minutes": target_optimal_minutes
         }
 
     total_cost = 0.0
@@ -151,7 +173,7 @@ def evaluate_family_sequence(
     for i in range(len(sequence) - 1):
         orig_id = sequence[i]
         dest_id = sequence[i + 1]
-        step_cost = block_dist.get((orig_id, dest_id), 120.0)
+        step_cost = block_dist.get((orig_id, dest_id), min_inter_cost)
         total_cost += step_cost
         orig_name = fam_by_id.get(orig_id, {}).get("name", orig_id)
         dest_name = fam_by_id.get(dest_id, {}).get("name", dest_id)
@@ -162,12 +184,19 @@ def evaluate_family_sequence(
             "to_id": dest_id,
             "to_name": dest_name,
             "cost_minutes": step_cost,
-            "is_incompatible": step_cost > 120.0
+            "is_incompatible": step_cost > min_inter_cost
         })
 
     is_complete = len(sequence) == len(families)
-    is_optimal = is_complete and (total_cost == 840.0)
-    diff = total_cost - 840.0
+    if is_complete:
+        diff = total_cost - target_optimal_minutes
+        is_optimal = (total_cost <= target_optimal_minutes)
+    else:
+        # For an incomplete sequence, diff represents excess/penalty accrued so far above the minimum for these steps
+        steps_so_far = len(sequence) - 1
+        min_steps_cost = steps_so_far * min_inter_cost
+        diff = max(0.0, total_cost - min_steps_cost)
+        is_optimal = False
 
     return {
         "total_minutes": total_cost,
@@ -178,7 +207,8 @@ def evaluate_family_sequence(
         "is_optimal": is_optimal,
         "is_complete": is_complete,
         "count": len(sequence),
-        "total_families": len(families)
+        "total_families": len(families),
+        "target_optimal_minutes": target_optimal_minutes
     }
 
 
@@ -349,15 +379,17 @@ def generate_sensitivity_table(
 ) -> pd.DataFrame:
     """Generate discrete sensitivity table across standard scenario steps."""
     if points is None:
-        points = [-20.0, -10.0, 0.0, 10.0, 20.0, 24.66, 30.0, 40.0, 50.0, 52.27, 60.0]
+        be_ls = round(((LS_CAPACITY_SHIFTS * MINUTES_PER_SHIFT - base_setup_minutes) / base_net_minutes - 1.0) * 100.0, 2) if base_net_minutes > 0 else 24.66
+        be_dd = round(((DD_CAPACITY_SHIFTS * MINUTES_PER_SHIFT - base_setup_minutes) / base_net_minutes - 1.0) * 100.0, 2) if base_net_minutes > 0 else 52.27
+        points = sorted(list(set([-20.0, -10.0, 0.0, 10.0, 20.0, be_ls, 30.0, 40.0, 50.0, be_dd, 60.0])))
 
     rows = []
     for p in points:
         res = calculate_sensitivity(base_net_minutes, base_setup_minutes, p)
         dem = round(base_demand * (1.0 + p / 100.0))
         label = f"Base ({dem:,})" if abs(p) < 0.01 else (
-            f"Quiebre L-S (+{p:.1f}%)" if abs(p - 24.66) < 0.1 else (
-                f"Quiebre D-D (+{p:.1f}%)" if abs(p - 52.27) < 0.1 else f"{p:+.0f}%"
+            f"Quiebre L-S (+{p:.1f}%)" if abs(p - res["ls_breakeven_pct"]) < 0.1 else (
+                f"Quiebre D-D (+{p:.1f}%)" if abs(p - res["dd_breakeven_pct"]) < 0.1 else f"{p:+.0f}%"
             )
         )
         rows.append({
@@ -421,9 +453,19 @@ THEORETICAL_WORST_CASE_MINUTES = 2880.0  # 16 transitions * 180 min
 
 
 def get_augmented_comparisons(result: Dict[str, Any]) -> pd.DataFrame:
-    """Return comparison table augmented with theoretical worst case and diffs."""
+    """Return comparison table augmented with theoretical worst case and diffs, sorted ascending."""
     base_comp = result.get("comparison", [])
     opt_mins = float(result.get("setup_minutes", 840.0))
+
+    def format_finish(f_val: Any) -> str:
+        if not f_val:
+            return "—"
+        s = str(f_val).strip()
+        try:
+            dt = datetime.fromisoformat(s)
+            return dt.strftime("%d/%m %H:%M")
+        except Exception:
+            return s[:16]
 
     rows = []
     for item in base_comp:
@@ -436,15 +478,13 @@ def get_augmented_comparisons(result: Dict[str, Any]) -> pd.DataFrame:
         if method == "Optimización":
             label = "Óptimo demostrado (TSP exacto)"
             badge = "Demostrado"
-            finish = result.get("finish")
+            finish_str = format_finish(result.get("finish"))
+        elif "Necesidad" in method or "Demanda" in method:
+            label = "Demanda descendente"
+            finish_str = format_finish(item.get("finish"))
         else:
             label = method
-            badge = f"+{diff_hours:.1f} h" if diff_hours > 0 else "0 h"
-            finish = item.get("finish")
-
-        finish_str = "24/09 17:15" if finish and "2026-09-24" in str(finish) else (
-            str(finish)[:16] if finish else "—"
-        )
+            finish_str = format_finish(item.get("finish"))
 
         rows.append({
             "Método": label,
@@ -471,7 +511,9 @@ def get_augmented_comparisons(result: Dict[str, Any]) -> pd.DataFrame:
         "Tipo": "Referencia Teórica"
     })
 
-    return pd.DataFrame(rows)
+    df = pd.DataFrame(rows)
+    df = df.sort_values(by="Minutos de cambio", ascending=True).reset_index(drop=True)
+    return df
 
 
 # ---------------------------------------------------------------------------

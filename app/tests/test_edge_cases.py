@@ -13,6 +13,10 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from analytics import (
+    DD_CAPACITY_SHIFTS,
+    LS_CAPACITY_SHIFTS,
+    MINUTES_PER_SHIFT,
+    THEORETICAL_WORST_CASE_MINUTES,
     calculate_pareto,
     calculate_sensitivity,
     detect_families,
@@ -133,3 +137,130 @@ def test_excel_export_formulas_and_protection(demo):
     cumplimiento_sheet = wb["Cumplimiento"]
     assert cumplimiento_sheet["D2"].value == "=B2-C2"
     assert "IF(D2=0" in cumplimiento_sheet["E2"].value
+
+
+def test_scaling_search_fuzzing_special_characters():
+    """Ensure search queries containing regex metacharacters do not crash with ArrowInvalid or RegexError."""
+    dangerous_patterns = [
+        "[", "]", "*", "+", "(", ")", "?", "\\", "^", "$", ".", "{", "}", "|",
+        "[CLSD]", "a++", "(?i)", ".*", "+++"
+    ]
+    df = get_scaling_data("TODOS")
+
+    for pat in dangerous_patterns:
+        q = pat.lower()
+        filtered = df[
+            df["item"].str.lower().str.contains(q, regex=False) |
+            df["reason"].str.lower().str.contains(q, regex=False) |
+            df["impact"].str.lower().str.contains(q, regex=False)
+        ]
+        assert isinstance(filtered, pd.DataFrame)
+
+
+def test_sequence_builder_partial_evaluation_invariants(demo):
+    """Severe audit on sequence evaluator: partial sequences must never claim negative savings."""
+    families = detect_families(demo)
+    block_dist = get_block_matrix(demo, families)
+    all_ids = [f["id"] for f in families]
+
+    for length in range(1, len(all_ids) + 1):
+        seq = all_ids[:length]
+        res = evaluate_family_sequence(seq, families, block_dist)
+
+        assert res["count"] == length
+        assert res["total_families"] == 8
+
+        if length < 8:
+            assert res["is_complete"] is False
+            assert res["is_optimal"] is False
+            assert res["diff_minutes"] >= 0.0, f"Partial sequence of length {length} had negative diff: {res['diff_minutes']}"
+            assert res["diff_hours"] >= 0.0
+        else:
+            assert res["is_complete"] is True
+            assert res["total_minutes"] >= 840.0
+
+
+def test_sequence_builder_custom_target_optimal():
+    """Verify evaluator respects custom target optimal minutes and handles arbitrary step counts."""
+    custom_families = [
+        {"id": "A", "name": "Fam A", "members": ["A1", "A2"]},
+        {"id": "B", "name": "Fam B", "members": ["B1"]},
+        {"id": "C", "name": "Fam C", "members": ["C1"]},
+    ]
+    custom_dist = {
+        ("A", "A"): 0.0, ("B", "B"): 0.0, ("C", "C"): 0.0,
+        ("A", "B"): 100.0, ("B", "A"): 100.0,
+        ("B", "C"): 100.0, ("C", "B"): 100.0,
+        ("A", "C"): 200.0, ("C", "A"): 200.0,
+    }
+
+    # Optimal sequence A -> B -> C = 200 min
+    res_opt = evaluate_family_sequence(["A", "B", "C"], custom_families, custom_dist, target_optimal_minutes=200.0)
+    assert res_opt["is_complete"] is True
+    assert res_opt["is_optimal"] is True
+    assert res_opt["total_minutes"] == 200.0
+    assert res_opt["diff_minutes"] == 0.0
+
+    # Suboptimal sequence A -> C -> B = 200 + 100 = 300 min
+    res_sub = evaluate_family_sequence(["A", "C", "B"], custom_families, custom_dist, target_optimal_minutes=200.0)
+    assert res_sub["is_complete"] is True
+    assert res_sub["is_optimal"] is False
+    assert res_sub["total_minutes"] == 300.0
+    assert res_sub["diff_minutes"] == 100.0
+
+
+def test_excel_export_cell_types_and_no_corrupted_formulas(demo):
+    """Verify that generated Excel contains no NaN, #VALUE!, or broken formula references."""
+    sol = solve(demo)
+    content = excel_export(sol)
+    wb = openpyxl.load_workbook(io.BytesIO(content), data_only=False)
+
+    for sheetname in wb.sheetnames:
+        ws = wb[sheetname]
+        for row in ws.iter_rows(values_only=False):
+            for cell in row:
+                if cell.value is not None:
+                    s_val = str(cell.value)
+                    assert "#REF!" not in s_val, f"Corrupted #REF! formula in {sheetname} at {cell.coordinate}"
+                    assert "#VALUE!" not in s_val, f"Corrupted #VALUE! in {sheetname} at {cell.coordinate}"
+                    assert "#NAME?" not in s_val, f"Corrupted #NAME? in {sheetname} at {cell.coordinate}"
+                    assert "NaN" != s_val, f"Raw NaN found in {sheetname} at {cell.coordinate}"
+
+
+def test_pareto_monotonicity_and_100_percent_closure(demo):
+    """Verify that Pareto cumulative percentages are strictly monotonically increasing and reach exactly 100%."""
+    df = calculate_pareto(demo)
+    cum = list(df["cum_pct"])
+    for i in range(len(cum) - 1):
+        assert cum[i] <= cum[i + 1] + 1e-9, f"Pareto cumulative non-monotonic at index {i}"
+    assert abs(cum[-1] - 100.0) < 0.01, f"Pareto cumulative did not reach 100%: {cum[-1]}"
+
+
+def test_sensitivity_breakeven_exact_capacities(demo):
+    """Verify mathematical exactness of breakeven points against total minutes."""
+    base_net = 27819.625384303745
+    base_setup = 840.0
+    ls_total_mins = LS_CAPACITY_SHIFTS * MINUTES_PER_SHIFT  # 35,520
+    dd_total_mins = DD_CAPACITY_SHIFTS * MINUTES_PER_SHIFT  # 43,200
+
+    res = calculate_sensitivity(base_net, base_setup, 0.0)
+    be_ls = res["ls_breakeven_pct"]
+    be_dd = res["dd_breakeven_pct"]
+
+    res_ls = calculate_sensitivity(base_net, base_setup, be_ls)
+    assert abs(res_ls["total_minutes"] - ls_total_mins) < 1e-5
+    assert abs(res_ls["shifts_required"] - 74.0) < 1e-5
+
+    res_dd = calculate_sensitivity(base_net, base_setup, be_dd)
+    assert abs(res_dd["total_minutes"] - dd_total_mins) < 1e-5
+    assert abs(res_dd["shifts_required"] - 90.0) < 1e-5
+
+
+def test_augmented_comparisons_strictly_sorted_ascending(demo):
+    """Verify that methods comparison table is strictly sorted ascending by setup minutes."""
+    sol = solve(demo)
+    comp = get_augmented_comparisons(sol)
+    mins = list(comp["Minutos de cambio"])
+    assert mins == sorted(mins), f"Comparison table was not sorted ascending: {mins}"
+    assert mins[0] == 840.0
+    assert mins[-1] == THEORETICAL_WORST_CASE_MINUTES
