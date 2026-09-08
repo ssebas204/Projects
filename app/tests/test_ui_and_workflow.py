@@ -541,6 +541,7 @@ def test_app_executive_summary_title_and_chips():
     assert "PRODUCCIÓN NETA" in md_texts
     assert "CAMBIOS DE FORMATO" in md_texts
     assert "CAPACIDAD LIBRE" in md_texts
+    assert "¡Ahora 100% legible!" in md_texts
 
 
 def test_app_scaling_tab_mode_adaptation():
@@ -567,6 +568,53 @@ def test_app_scaling_tab_mode_adaptation():
     assert "Marco de Madurez Operativa: Checklist de Viabilidad para Planta Real" in combined_custom
     # Metrics include maturity index
     assert any("Madurez" in m.label for m in at.metric)
+
+
+def test_app_maturity_checklist_persistence_on_filter_and_presets():
+    """Verify that checklist responses are never wiped out when filtering/searching categories."""
+    app_path = str(Path(__file__).resolve().parents[1] / "app.py")
+    at = AppTest.from_file(app_path, default_timeout=30)
+    at.run()
+    assert not at.exception
+
+    # Switch to Custom mode
+    mode_radio = [r for r in at.radio if "modo" in r.label.lower()][0]
+    custom_opt = [o for o in mode_radio.options if "Nuevo Escenario" in o][0]
+    mode_radio.set_value(custom_opt).run()
+    assert not at.exception
+
+    # Modify item 5 to "❌ No disponible"
+    item5 = [r for r in at.radio if "#5" in r.label][0]
+    assert "✅" in item5.value
+    item5.set_value("❌ No disponible").run()
+    assert not at.exception
+    assert at.session_state["maturity_answers"][5] == "❌ No disponible"
+
+    # Filter by BLOQUEANTE (hides item 5)
+    crit_filter = [r for r in at.radio if "criticidad" in r.label.lower()][0]
+    crit_filter.set_value("BLOQUEANTE").run()
+    assert not at.exception
+    # Item 5 is not in rendered radio list
+    assert not any("#5" in r.label for r in at.radio)
+    # But internal persistent answer is preserved!
+    assert at.session_state["maturity_answers"][5] == "❌ No disponible"
+
+    # Filter back to TODOS
+    crit_filter = [r for r in at.radio if "criticidad" in r.label.lower()][0]
+    crit_filter.set_value("TODOS").run()
+    assert not at.exception
+    item5_restored = [r for r in at.radio if "#5" in r.label][0]
+    assert item5_restored.value == "❌ No disponible"
+
+    # Click high maturity preset (100%)
+    btn_full = [b for b in at.button if "100% disponible" in b.label][0]
+    btn_full.click().run()
+    assert not at.exception
+    assert all(at.session_state["maturity_answers"][i] == "✅ Sí (Disponible)" for i in range(1, 15))
+    mat_metrics = [m for m in at.metric if "Madurez" in m.label]
+    assert len(mat_metrics) == 1
+    assert "100.0%" in mat_metrics[0].value
+
 
 
 

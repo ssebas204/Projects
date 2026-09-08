@@ -83,8 +83,26 @@ def demo():
     return json.loads((ROOT / "data/demo.json").read_text())
 
 
+BLANK_SCENARIO = {
+    "name": "Nuevo Escenario de Producción",
+    "config": {
+        "shift_hours": 8,
+        "weekday_shifts": 3,
+        "saturday_shifts": 2,
+        "sunday_shifts": 0,
+        "year": 2026,
+        "month": 9,
+    },
+    "products": [],
+    "matrix": {},
+    "closures": [],
+}
+
+
 def replace_scenario(value):
     st.session_state.source = value
+    if st.session_state.get("app_mode") == MODE_CUSTOM:
+        st.session_state.custom_scenario = copy.deepcopy(value)
     st.session_state.epoch += 1
     st.session_state.game_sequence = []
     try:
@@ -121,31 +139,52 @@ if "source" not in st.session_state:
 if "game_sequence" not in st.session_state:
     st.session_state.game_sequence = []
 
-source = st.session_state.source
-epoch = st.session_state.epoch
-key = lambda name: f"{epoch}_{name}"
-cfg = source.get("config", {})
-
 
 def on_mode_change():
     new_mode = st.session_state.app_mode
+    name_k = f"{st.session_state.epoch}_name"
     if new_mode == MODE_VOLPAK:
+        if "source" in st.session_state and st.session_state.source.get("name") != "Línea Volpak 4":
+            st.session_state.custom_scenario = copy.deepcopy(st.session_state.source)
         st.session_state.source = demo()
         st.session_state.game_sequence = []
         try:
             st.session_state.result = solve(st.session_state.source)
         except Exception:
             st.session_state.result = None
-        name_k = f"{st.session_state.epoch}_name"
         if name_k in st.session_state:
             st.session_state[name_k] = "Línea Volpak 4"
+    elif new_mode == MODE_CUSTOM:
+        if "custom_scenario" in st.session_state and st.session_state.custom_scenario:
+            st.session_state.source = copy.deepcopy(st.session_state.custom_scenario)
+        else:
+            custom_init = copy.deepcopy(demo())
+            custom_init["name"] = "Línea de Fabricación (Personalizada)"
+            st.session_state.source = custom_init
+            st.session_state.custom_scenario = copy.deepcopy(custom_init)
+        st.session_state.game_sequence = []
+        try:
+            st.session_state.result = solve(st.session_state.source)
+        except Exception:
+            st.session_state.result = None
+        if name_k in st.session_state:
+            st.session_state[name_k] = st.session_state.source.get("name", "Línea de Fabricación (Personalizada)")
 
+
+source = st.session_state.source
+epoch = st.session_state.epoch
+key = lambda name: f"{epoch}_{name}"
+cfg = source.get("config", {})
 
 # Header
 tagline_text = (
     "Línea Volpak 4 · Optimización exacta de cambios de formato con OR-Tools CP-SAT"
     if st.session_state.get("app_mode") == MODE_VOLPAK
-    else f"{source.get('name', 'Línea de Envasado')} · Programación matemática y optimización con OR-Tools CP-SAT"
+    else (
+        f"{source.get('name', 'Línea de Producción')} · Programación matemática y optimización con OR-Tools CP-SAT"
+        if source.get("name") and source.get("name") not in ["Nuevo Escenario", "Nuevo Escenario de Producción"]
+        else "Nuevo Escenario · Programación matemática y optimización con OR-Tools CP-SAT"
+    )
 )
 st.markdown(f"""
 <div class="app-header">
@@ -154,6 +193,21 @@ st.markdown(f"""
         <div class="tagline">{tagline_text}</div>
     </div>
     <div class="author">by: Sebastian Parra</div>
+</div>
+""", unsafe_allow_html=True)
+
+# Apartado Inicial: Selector de Caso / Modo
+st.markdown("""
+<div style="background:#f8fafc;border:1px solid #cbd5e1;border-radius:12px;padding:14px 18px;margin-bottom:12px;box-shadow:0 1px 3px rgba(0,0,0,0.02);">
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;">
+        <span style="font-size:16px;">🧭</span>
+        <span style="font-size:13.5px;font-weight:700;letter-spacing:0.04em;text-transform:uppercase;color:#1e293b;">
+            Apartado Inicial · Selección de Escenario Operativo
+        </span>
+    </div>
+    <div style="font-size:13.5px;color:#475569;">
+        ¿Deseas evidenciar el caso de estudio base de la <strong>Línea Volpak 4</strong> o configurar y evaluar un <strong>Nuevo Escenario</strong>?
+    </div>
 </div>
 """, unsafe_allow_html=True)
 
@@ -170,7 +224,7 @@ is_volpak = (modo == MODE_VOLPAK)
 
 # Onboarding and loading options when in Custom Scenario mode
 if not is_volpak:
-    with st.expander("📥 Cargar datos del Nuevo Escenario (Excel / JSON / Plantilla en blanco)", expanded=(len(source.get("products", [])) == 0 or source.get("name") == "Línea Volpak 4")):
+    with st.expander("📥 Cargar datos del Nuevo Escenario (Excel / JSON / Plantilla en blanco)", expanded=(len(source.get("products", [])) == 0 or source.get("name") in ["Línea Volpak 4", "Nuevo Escenario de Producción"])):
         st.markdown("""
         <div style="font-size:14px;color:#334155;margin-bottom:10px;">
             Carga los archivos maestros para este nuevo escenario de fabricación o inicia con una plantilla en blanco:
@@ -221,8 +275,13 @@ if not is_volpak:
 # Context controls
 context = st.columns([2.5, 2, 1.2])
 default_name = "Línea Volpak 4" if is_volpak else source.get("name", "Nuevo Escenario de Producción")
-name = context[0].text_input("Nombre del escenario", value=source.get("name", default_name), key=key("name"))
+val_kwargs = {}
+if key("name") not in st.session_state:
+    val_kwargs["value"] = source.get("name", default_name)
+name = context[0].text_input("Nombre del escenario", key=key("name"), **val_kwargs)
 source["name"] = name
+if not is_volpak:
+    st.session_state.custom_scenario = copy.deepcopy(source)
 selected_month = context[1].date_input("Mes de fabricación", value=date(cfg.get("year", 2026), cfg.get("month", 9), 1), key=key("month"), help="Se utiliza todo el mes de la fecha seleccionada.")
 context[2].markdown("**Línea de producción**")
 context[2].write(", ".join(dict.fromkeys(str(p["line"]) for p in source.get("products", []))) or ("Volpak 4" if is_volpak else "No definida"))
@@ -260,7 +319,11 @@ with tabs[0]:
     exec_title = (
         "Plan Maestro de Fabricación y Secuenciación Óptima · Línea Volpak 4"
         if is_volpak
-        else f"Plan Maestro de Fabricación y Secuenciación Óptima · {html.escape(source.get('name', 'Línea de Producción'))}"
+        else (
+            f"Plan Maestro de Fabricación y Secuenciación Óptima · {html.escape(source['name'])}"
+            if source.get("name") and source.get("name") not in ["Nuevo Escenario", "Nuevo Escenario de Producción"]
+            else "Plan Maestro de Fabricación y Secuenciación Óptima"
+        )
     )
     exec_subtitle = "Programación matemática de producción mediante minimización de tiempos de cambio y balance de capacidad operativa"
 
@@ -413,11 +476,11 @@ with tabs[0]:
         ))
     fig_cap.update_layout(
         barmode="stack",
-        height=90,
-        margin=dict(l=10, r=10, t=10, b=10),
+        height=100,
+        margin=dict(l=10, r=10, t=28, b=10),
         xaxis=dict(showgrid=False, range=[0, 100], ticksuffix="%", title=""),
         yaxis=dict(showticklabels=False),
-        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1, font=dict(size=12, color="#0f172a")),
         paper_bgcolor="rgba(0,0,0,0)",
         plot_bgcolor="#ffffff",
     )
@@ -442,13 +505,16 @@ with tabs[0]:
         <div style="background:white;border:1px solid #fed7aa;border-left:5px solid #d97706;border-radius:10px;padding:14px 18px;box-shadow:0 1px 3px rgba(0,0,0,0.03);">
             <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px;">
                 <span style="font-size:13px;font-weight:700;color:#9a3412;letter-spacing:0.02em;">🟠 CAMBIOS DE FORMATO</span>
-                <span style="font-size:20px;font-weight:800;color:#d97706;">{setup_occ_pct:.1f}%</span>
+                <div style="display:flex;align-items:center;gap:6px;">
+                    <span style="font-size:11px;background:#ffedd5;color:#c2410c;padding:2px 6px;border-radius:4px;font-weight:700;">¡Ahora 100% legible!</span>
+                    <span style="font-size:20px;font-weight:800;color:#d97706;">{setup_occ_pct:.1f}%</span>
+                </div>
             </div>
             <div style="font-size:14px;font-weight:600;color:#0f172a;margin-bottom:3px;">
                 {setup_turns_calc:.2f} turnos <span style="font-size:13px;font-weight:400;color:#64748b;">({pretty(opt_setup_mins, 0)} min · {opt_setup_mins/60.0:.1f} h)</span>
             </div>
             <div style="font-size:12px;color:#64748b;">
-                Tiempos de setup minimizados por el optimizador
+                Tiempos de setup minimizados por el optimizador (desacoplado de la franja estrecha)
             </div>
         </div>
 
@@ -587,7 +653,7 @@ with tabs[1]:
                 st.error(f"No se pudo recuperar: {exc}")
 
     if st.button("Restablecer caso Volpak 4"):
-        replace_scenario(demo())
+        replace_scenario(demo() if is_volpak else copy.deepcopy(BLANK_SCENARIO))
 
     st.markdown("#### Productos y necesidades")
     st.caption("Puedes agregar o eliminar filas. La velocidad siempre se expresa por 8 horas, aunque configures turnos más cortos.")
@@ -792,7 +858,7 @@ with tabs[3]:
     if result is None:
         st.subheader("El plan comienza con tus datos")
         st.info("Revisa los productos en el paso 1 y configura el calendario en el paso 2. Después pulsa «Optimizar y generar plan».")
-        st.button("Ir al calendario", on_click=go_step, args=(2,))
+        st.button("Ir al calendario", on_click=go_step, args=(2,), key="btn_go_calendar_tab4")
     else:
         stale = result["fingerprint"] != fingerprint(current)
         if stale:
@@ -819,7 +885,7 @@ with tabs[3]:
         st.markdown("#### Cronograma de fabricación interactivo (Timeline Gantt)")
         events = pd.DataFrame(result["events"])
         if not events.empty:
-            include_idle = st.checkbox("Mostrar periodos libres en el Gantt", value=False)
+            include_idle = st.checkbox("Mostrar periodos libres en el Gantt", value=False, key="chk_include_idle_gantt")
             view = events if include_idle else events[events["type"] != "Libre"]
             if not view.empty:
                 view = view.copy()
@@ -936,7 +1002,7 @@ with tabs[4]:
         st.session_state.game_sequence = []
         st.rerun()
 
-    if btn_c2.button(btn_opt_label):
+    if btn_c2.button(btn_opt_label, key="btn_game_load_optimal"):
         st.session_state.game_sequence = list(optimal_seq)
         st.rerun()
 
@@ -1317,19 +1383,23 @@ with tabs[7]:
 
         all_scale = get_scaling_data("TODOS")
 
-        # Read current checklist responses
+        # Read and persist checklist responses across filter and search state changes
         chk_options = ["✅ Sí (Disponible)", "🔄 En proceso", "❌ No disponible"]
-        chk_responses = {}
-        for _, it in all_scale.iterrows():
-            n = int(it["num"])
+        if "maturity_answers" not in st.session_state:
+            st.session_state.maturity_answers = {
+                n: ("✅ Sí (Disponible)" if DEFAULT_MATURITY_RESPONSES.get(n) == "SI"
+                    else ("🔄 En proceso" if DEFAULT_MATURITY_RESPONSES.get(n) == "EN_PROCESO"
+                          else "❌ No disponible"))
+                for n in range(1, 15)
+            }
+
+        # Synchronize any mounted radio widgets that were updated
+        for n in range(1, 15):
             k = f"maturity_chk_{n}"
             if k in st.session_state:
-                chk_responses[n] = st.session_state[k]
-            else:
-                def_stat = DEFAULT_MATURITY_RESPONSES.get(n, "EN_PROCESO")
-                chk_responses[n] = "✅ Sí (Disponible)" if def_stat == "SI" else ("🔄 En proceso" if def_stat == "EN_PROCESO" else "❌ No disponible")
+                st.session_state.maturity_answers[n] = st.session_state[k]
 
-        mat = calculate_maturity_score(chk_responses)
+        mat = calculate_maturity_score(st.session_state.maturity_answers)
 
         # Maturity KPIs
         mat_cols = st.columns(4)
@@ -1359,18 +1429,22 @@ with tabs[7]:
             for _, it in all_scale.iterrows():
                 n = int(it["num"])
                 def_stat = DEFAULT_MATURITY_RESPONSES.get(n, "EN_PROCESO")
-                st.session_state[f"maturity_chk_{n}"] = "✅ Sí (Disponible)" if def_stat == "SI" else ("🔄 En proceso" if def_stat == "EN_PROCESO" else "❌ No disponible")
+                val = "✅ Sí (Disponible)" if def_stat == "SI" else ("🔄 En proceso" if def_stat == "EN_PROCESO" else "❌ No disponible")
+                st.session_state.maturity_answers[n] = val
+                st.session_state[f"maturity_chk_{n}"] = val
             st.rerun()
 
         if b2.button("🌟 Simular planta de alta madurez (100% disponible)", key=key("btn_preset_full")):
             for _, it in all_scale.iterrows():
                 n = int(it["num"])
+                st.session_state.maturity_answers[n] = "✅ Sí (Disponible)"
                 st.session_state[f"maturity_chk_{n}"] = "✅ Sí (Disponible)"
             st.rerun()
 
         if b3.button("🔄 Reiniciar diagnóstico a 'En proceso'", key=key("btn_preset_reset")):
             for _, it in all_scale.iterrows():
                 n = int(it["num"])
+                st.session_state.maturity_answers[n] = "🔄 En proceso"
                 st.session_state[f"maturity_chk_{n}"] = "🔄 En proceso"
             st.rerun()
 
@@ -1421,9 +1495,8 @@ with tabs[7]:
             with card_col2:
                 st.markdown("""<div style="height:6px;"></div>""", unsafe_allow_html=True)
                 chk_key = f"maturity_chk_{item_n}"
-                def_code = DEFAULT_MATURITY_RESPONSES.get(item_n, "EN_PROCESO")
-                def_lbl = "✅ Sí (Disponible)" if def_code == "SI" else ("🔄 En proceso" if def_code == "EN_PROCESO" else "❌ No disponible")
-                def_idx = chk_options.index(def_lbl)
+                saved_val = st.session_state.maturity_answers.get(item_n, "🔄 En proceso")
+                saved_idx = chk_options.index(saved_val) if saved_val in chk_options else 1
                 if chk_key in st.session_state:
                     st.radio(
                         f"¿Tu planta cuenta con este dato? (#{item_n})",
@@ -1435,7 +1508,7 @@ with tabs[7]:
                     st.radio(
                         f"¿Tu planta cuenta con este dato? (#{item_n})",
                         chk_options,
-                        index=def_idx,
+                        index=saved_idx,
                         key=chk_key,
                         horizontal=False
                     )
