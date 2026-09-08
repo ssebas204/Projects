@@ -222,12 +222,26 @@ with tabs[0]:
         </div>
         """, unsafe_allow_html=True)
 
+    cierre_card_sub = "Según capacidad y calendario"
+    if result and result.get("finish"):
+        try:
+            finish_dt = datetime.fromisoformat(str(result["finish"]))
+            spanish_months = {
+                1: "enero", 2: "febrero", 3: "marzo", 4: "abril", 5: "mayo", 6: "junio",
+                7: "julio", 8: "agosto", 9: "septiembre", 10: "octubre", 11: "noviembre", 12: "diciembre"
+            }
+            month_name = spanish_months.get(finish_dt.month, finish_dt.strftime("%B"))
+            prefix = "Cierre anticipado" if free_shifts_real > 0 else "Cierre estimado"
+            cierre_card_sub = f"{prefix}: <strong>{finish_dt.day} de {month_name}</strong>"
+        except Exception:
+            cierre_card_sub = f"Cierre estimado: <strong>{str(result['finish'])[:10]}</strong>"
+
     with m3:
         st.markdown(f"""
         <div class="exec-card">
             <div class="card-title">Turnos Utilizados</div>
             <div class="card-value">{used_shifts_real} / {avail_shifts_cal} <span style="font-size:16px;color:#16a34a;">({free_shifts_real} libres)</span></div>
-            <div class="card-sub">Cierre anticipado: <strong>24 de septiembre</strong></div>
+            <div class="card-sub">{cierre_card_sub}</div>
         </div>
         """, unsafe_allow_html=True)
 
@@ -283,9 +297,16 @@ with tabs[0]:
     pareto_df = calculate_pareto(source)
     insights = get_pareto_key_insights(pareto_df)
 
-    st.info(f"""
-    🎯 **Concentración Crítica de Carga:** **3 SKUs** (16816 Mayonesa ZEV, 5998 Tomate ZEV y 17246 Mayonesa LINE) concentran el **{insights['top_3_pct']}% de la carga del mes** ({pareto_df.head(3)['shifts_required'].sum():.1f} de los {pareto_df['shifts_required'].sum():.1f} turnos totales de producción). Proteger su continuidad y mitigar paradas en estas tres referencias es prioritario para asegurar el cumplimiento global.
-    """)
+    if not pareto_df.empty:
+        top_skus_str = ", ".join(insights.get("top_3_skus", []))
+        num_top = len(insights.get("top_3_skus", []))
+        sku_label = f"**{num_top} SKUs**" if num_top > 1 else "**1 SKU**"
+        sku_detail = f" ({top_skus_str})" if top_skus_str else ""
+        top_shifts = pareto_df.head(3)["shifts_required"].sum()
+        total_shifts = pareto_df["shifts_required"].sum()
+        st.info(f"""
+        🎯 **Concentración Crítica de Carga:** {sku_label}{sku_detail} concentran el **{insights['top_3_pct']}% de la carga del mes** ({top_shifts:.1f} de los {total_shifts:.1f} turnos totales de producción). Proteger su continuidad y mitigar paradas en estas referencias es prioritario para asegurar el cumplimiento global.
+        """)
 
     # Pareto Dual-Axis Plotly Chart
     fig_p = go.Figure()
@@ -710,11 +731,6 @@ with tabs[3]:
 # ---------------------------------------------------------------------------
 with tabs[4]:
     st.subheader("Constructor de Secuencia — Reta al Optimizador")
-    st.markdown("""
-    El algoritmo matemático demostró que la secuencia óptima requiere exactamente **840 minutos (14,0 h)** de cambio de formato.
-    ¿Puedes igualarlo o construir una secuencia más eficiente? Selecciona las **8 familias tecnológicas** en el orden en que las ingresarías a la línea Volpak 4.
-    """)
-
     families = detect_families(source)
     block_dist = get_block_matrix(source, families)
     fam_by_id = {f["id"]: f for f in families}
@@ -723,17 +739,32 @@ with tabs[4]:
     # Filter any stale IDs that don't exist in current scenario
     st.session_state.game_sequence = [fid for fid in st.session_state.game_sequence if fid in valid_fam_ids]
 
+    # Calculate theoretical optimum bound for families
+    off_diag_costs = [c for (f1, f2), c in block_dist.items() if f1 != f2 and c > 0]
+    min_inter_cost = min(off_diag_costs) if off_diag_costs else 120.0
+    bound_opt_mins = (len(families) - 1) * min_inter_cost if len(families) > 1 else 0.0
+
+    known_opt = ["3533", "3643", "15564", "5998", "6743", "6639", "3278", "3757"]
+    is_volpak4 = all(k in valid_fam_ids for k in known_opt) and len(known_opt) == len(families)
+    
+    opt_bound_display = 840 if (is_volpak4 or round(bound_opt_mins) == 840) else int(round(bound_opt_mins))
+    btn_opt_label = f"★ Cargar secuencia óptima ({opt_bound_display} min)"
+
+    st.markdown(f"""
+    El algoritmo matemático demostró que la secuencia óptima requiere una cota de **{opt_bound_display} minutos ({opt_bound_display/60.0:.1f} h)** de cambio de formato.
+    ¿Puedes igualarlo o construir una secuencia más eficiente? Selecciona las **{len(families)} familias tecnológicas** en el orden en que las ingresarías a la línea{' Volpak 4' if is_volpak4 else ''}.
+    """)
+
     # Control buttons
     btn_c1, btn_c2, btn_c3, btn_c4 = st.columns(4)
     if btn_c1.button("🔄 Reiniciar secuencia"):
         st.session_state.game_sequence = []
         st.rerun()
 
-    if btn_c2.button("★ Cargar secuencia óptima (840 min)"):
+    if btn_c2.button(btn_opt_label):
         # The proven optimal sequence for Volpak 4 demo
-        known_opt = ["3533", "3643", "15564", "5998", "6743", "6639", "3278", "3757"]
-        if all(k in valid_fam_ids for k in known_opt) and len(known_opt) == len(families):
-            st.session_state.game_sequence = known_opt
+        if is_volpak4:
+            st.session_state.game_sequence = list(known_opt)
         else:
             st.session_state.game_sequence = [f["id"] for f in families]
         st.rerun()
@@ -766,13 +797,15 @@ with tabs[4]:
     else:
         st.info("Secuencia vacía. Haz clic en una de las familias abajo para definir el primer bloque de tu secuencia.")
 
-    if available_fams:
+    if not families:
+        st.info("No hay familias tecnológicas definidas en este escenario.")
+    elif available_fams:
         st.markdown(f"**Paso {len(chosen_ids) + 1} de {len(families)}:** Haz clic para agregar la siguiente familia:")
         cols = st.columns(min(len(available_fams), 4))
         for idx, fam in enumerate(available_fams):
             col = cols[idx % len(cols)]
             label = f"➕ {fam['name']}\n({len(fam['members'])} SKU)"
-            if col.button(label, key=f"pick_fam_{fam['id']}"):
+            if col.button(label, key=key(f"pick_fam_{fam['id']}")):
                 st.session_state.game_sequence.append(fam["id"])
                 st.rerun()
     else:

@@ -264,3 +264,45 @@ def test_augmented_comparisons_strictly_sorted_ascending(demo):
     assert mins == sorted(mins), f"Comparison table was not sorted ascending: {mins}"
     assert mins[0] == 840.0
     assert mins[-1] == THEORETICAL_WORST_CASE_MINUTES
+
+
+def test_calculate_pareto_empty_products():
+    """Verify calculate_pareto returns a fully typed 9-column schema on empty products."""
+    required_columns = [
+        "id", "description", "demand", "rate", "minutes_required",
+        "shifts_required", "pct_load", "cum_pct", "zone"
+    ]
+    for empty_input in [{"products": []}, {"products": [], "config": {"factor": 1.0}}]:
+        df = calculate_pareto(empty_input)
+        assert df.empty
+        for col in required_columns:
+            assert col in df.columns, f"Missing required column {col} in empty Pareto DataFrame"
+        assert "production_minutes" in df.columns
+        assert df["shifts_required"].sum() == 0.0
+        assert df["minutes_required"].sum() == 0.0
+        insights = get_pareto_key_insights(df)
+        assert insights == {"top_3_pct": 0.0, "top_3_skus": [], "zone_a_count": 0}
+
+
+def test_calculate_pareto_custom_subsets(demo):
+    """Verify calculate_pareto dynamically handles variable number of SKUs (1, 2, and 5)."""
+    # 1 SKU scenario
+    scen_1 = copy.deepcopy(demo)
+    scen_1["products"] = [demo["products"][0]]
+    df_1 = calculate_pareto(scen_1)
+    assert len(df_1) == 1
+    assert df_1["pct_load"].iloc[0] == 100.0
+    ins_1 = get_pareto_key_insights(df_1)
+    assert len(ins_1["top_3_skus"]) == 1
+    assert ins_1["top_3_pct"] == 100.0
+
+    # 2 SKUs scenario
+    scen_2 = copy.deepcopy(demo)
+    scen_2["products"] = demo["products"][:2]
+    df_2 = calculate_pareto(scen_2)
+    assert len(df_2) == 2
+    assert abs(df_2["pct_load"].sum() - 100.0) < 1e-4
+    ins_2 = get_pareto_key_insights(df_2)
+    assert len(ins_2["top_3_skus"]) == 2
+    assert ins_2["top_3_pct"] == 100.0
+

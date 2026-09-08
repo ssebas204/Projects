@@ -103,8 +103,8 @@ def validate(scenario):
 
 
 def effective_products(scenario):
-    factor = Decimal(str(scenario["config"]["factor"]))
-    return [dict(p, id=str(p["id"]), demand=int((Decimal(str(p["demand"])) * factor).to_integral_value(rounding=ROUND_CEILING))) for p in scenario["products"]]
+    factor = Decimal(str(scenario.get("config", {}).get("factor", 1.0)))
+    return [dict(p, id=str(p["id"]), demand=int((Decimal(str(p["demand"])) * factor).to_integral_value(rounding=ROUND_CEILING))) for p in scenario.get("products", [])]
 
 
 def cost(scenario, a, b):

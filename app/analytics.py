@@ -236,12 +236,27 @@ def calculate_pareto(scenario: Dict[str, Any]) -> pd.DataFrame:
             "description": p.get("description", pid),
             "demand": demand,
             "rate": rate,
+            "minutes_required": mins,
             "production_minutes": mins,
             "shifts_required": shifts
         })
 
+    if not rows:
+        return pd.DataFrame({
+            "id": pd.Series(dtype=str),
+            "description": pd.Series(dtype=str),
+            "demand": pd.Series(dtype=float),
+            "rate": pd.Series(dtype=float),
+            "minutes_required": pd.Series(dtype=float),
+            "production_minutes": pd.Series(dtype=float),
+            "shifts_required": pd.Series(dtype=float),
+            "pct_load": pd.Series(dtype=float),
+            "cum_pct": pd.Series(dtype=float),
+            "zone": pd.Series(dtype=str)
+        })
+
     df = pd.DataFrame(rows)
-    if df.empty or total_net_minutes == 0:
+    if total_net_minutes == 0:
         df["pct_load"] = 0.0
         df["cum_pct"] = 0.0
         df["zone"] = "C"

@@ -1,6 +1,7 @@
 """Comprehensive QA test suite verifying all 7 features, UI components, workflows, and edge cases."""
 from __future__ import annotations
 
+import copy
 import io
 import json
 import sys
@@ -334,3 +335,92 @@ def test_apptest_severe_interactive_lifecycle():
     # Clear search
     search_input.set_value("").run()
     assert not at.exception
+
+
+def test_app_empty_products_scenario_lifecycle(demo):
+    """Verify that the Streamlit app handles empty products scenario without KeyError or uncaught exceptions."""
+    app_path = str(Path(__file__).resolve().parents[1] / "app.py")
+    at = AppTest.from_file(app_path, default_timeout=30)
+    at.run()
+    assert not at.exception
+
+    empty_scenario = copy.deepcopy(demo)
+    empty_scenario["products"] = []
+    empty_scenario["matrix"] = {}
+    at.session_state["source"] = empty_scenario
+    at.session_state["result"] = None
+    at.session_state["epoch"] += 1
+    at.run()
+
+    # Must survive with zero exceptions (no KeyError: 'shifts_required')
+    assert not at.exception, f"App crashed on empty products: {at.exception}"
+
+    # Verify fallback text in executive cards
+    md_texts = [m.value for m in at.markdown]
+    has_fallback = any("Según capacidad y calendario" in t for t in md_texts)
+    assert has_fallback, "Executive card m3 did not display fallback 'Según capacidad y calendario'"
+
+    # Verify mini-game handles empty scenario gracefully
+    info_texts = [i.value for i in at.info]
+    assert any("No hay familias" in t for t in info_texts), "Mini-game did not show empty families notice"
+
+
+def test_app_dynamic_executive_card_finish_formatting(demo):
+    """Verify dynamic finish date formatting in card m3 for solved vs unfulfilled/missing finish."""
+    app_path = str(Path(__file__).resolve().parents[1] / "app.py")
+    at = AppTest.from_file(app_path, default_timeout=30)
+    at.run()
+    assert not at.exception
+
+    # Volpak 4 demo finishes on September 24
+    md_texts = [m.value for m in at.markdown]
+    assert any("24 de septiembre" in t for t in md_texts), "Expected '24 de septiembre' in executive card m3"
+
+    # Simulate scenario with no finish date (unfulfilled)
+    sim_result = copy.deepcopy(at.session_state["result"])
+    sim_result["finish"] = None
+    at.session_state["result"] = sim_result
+    at.session_state["epoch"] += 1
+    at.run()
+    assert not at.exception
+    md_texts = [m.value for m in at.markdown]
+    assert any("Según capacidad y calendario" in t for t in md_texts), "Expected fallback when finish is None"
+
+
+def test_app_mini_game_optimal_button_dynamism_and_key_namespacing(demo):
+    """Verify that the optimal sequence button adapts dynamically and pick_fam buttons are epoch-namespaced."""
+    app_path = str(Path(__file__).resolve().parents[1] / "app.py")
+    at = AppTest.from_file(app_path, default_timeout=30)
+    at.run()
+    assert not at.exception
+
+    # Default Volpak 4 demo has 840 min bound
+    opt_btn = [b for b in at.button if "840 min" in b.label]
+    assert len(opt_btn) == 1, "Expected '★ Cargar secuencia óptima (840 min)' button for Volpak 4"
+
+    # Verify pick_fam button keys have the epoch prefix
+    epoch = at.session_state["epoch"]
+    pick_buttons = [b for b in at.button if b.key and "pick_fam_" in b.key]
+    assert len(pick_buttons) > 0, "Expected family pick buttons"
+    for pb in pick_buttons:
+        assert pb.key.startswith(f"{epoch}_"), f"Button key '{pb.key}' is not namespaced with epoch {epoch}"
+
+
+def test_app_dynamic_pareto_banner_content(demo):
+    """Verify that the Pareto banner renders dynamic SKU identifiers computed from the scenario."""
+    app_path = str(Path(__file__).resolve().parents[1] / "app.py")
+    at = AppTest.from_file(app_path, default_timeout=30)
+    at.run()
+    assert not at.exception
+
+    info_texts = [i.value for i in at.info]
+    pareto_banner = [t for t in info_texts if "Concentración Crítica de Carga" in t]
+    assert len(pareto_banner) == 1, "Expected 1 Pareto concentration banner"
+    banner_text = pareto_banner[0]
+
+    # Verify dynamically calculated top SKU IDs are present
+    assert "16816" in banner_text
+    assert "5998" in banner_text
+    assert "17246" in banner_text
+    assert "62.2%" in banner_text
+
