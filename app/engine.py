@@ -104,7 +104,14 @@ def validate(scenario):
 
 def effective_products(scenario):
     factor = Decimal(str(scenario.get("config", {}).get("factor", 1.0)))
-    return [dict(p, id=str(p["id"]), demand=int((Decimal(str(p["demand"])) * factor).to_integral_value(rounding=ROUND_CEILING))) for p in scenario.get("products", [])]
+    return [
+        dict(
+            p,
+            id=str(p.get("id", "")),
+            demand=int((Decimal(str(p.get("demand", 0))) * factor).to_integral_value(rounding=ROUND_CEILING))
+        )
+        for p in scenario.get("products", [])
+    ]
 
 
 def cost(scenario, a, b):
@@ -114,7 +121,7 @@ def cost(scenario, a, b):
 
 
 def route_cost(scenario, route):
-    return sum((cost(scenario, a, b) for a, b in zip([scenario["config"].get("initial")] + route, route)), Fraction(0))
+    return sum((cost(scenario, a, b) for a, b in zip([scenario.get("config", {}).get("initial")] + route, route)), Fraction(0))
 
 
 def optimize_route(scenario):

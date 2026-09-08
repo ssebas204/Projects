@@ -25,6 +25,7 @@ from analytics import (
     calculate_sensitivity,
     detect_families,
     evaluate_family_sequence,
+    find_optimal_family_sequence,
     generate_sensitivity_table,
     get_augmented_comparisons,
     get_block_matrix,
@@ -113,7 +114,7 @@ if "game_sequence" not in st.session_state:
 source = st.session_state.source
 epoch = st.session_state.epoch
 key = lambda name: f"{epoch}_{name}"
-cfg = source["config"]
+cfg = source.get("config", {})
 
 # Header
 st.markdown("""
@@ -128,10 +129,10 @@ st.markdown("""
 
 # Context controls
 context = st.columns([2.5, 2, 1.2])
-name = context[0].text_input("Nombre del escenario", value=source["name"], key=key("name"))
-selected_month = context[1].date_input("Mes de fabricación", value=date(cfg["year"], cfg["month"], 1), key=key("month"), help="Se utiliza todo el mes de la fecha seleccionada.")
+name = context[0].text_input("Nombre del escenario", value=source.get("name", "Escenario Personalizado"), key=key("name"))
+selected_month = context[1].date_input("Mes de fabricación", value=date(cfg.get("year", 2026), cfg.get("month", 9), 1), key=key("month"), help="Se utiliza todo el mes de la fecha seleccionada.")
 context[2].markdown("**Línea de producción**")
-context[2].write(", ".join(dict.fromkeys(str(p["line"]) for p in source["products"])))
+context[2].write(", ".join(dict.fromkeys(str(p["line"]) for p in source.get("products", []))) or "No definida")
 
 # Navigation tabs
 steps = [
@@ -155,8 +156,8 @@ tabs = st.tabs(steps, key="workflow", on_change="rerun")
 
 # Shared state & evaluation
 result = st.session_state.result
-current_products = copy.deepcopy(source["products"])
-current_matrix = copy.deepcopy(source["matrix"])
+current_products = copy.deepcopy(source.get("products", []))
+current_matrix = copy.deepcopy(source.get("matrix", {}))
 current_closures = copy.deepcopy(source.get("closures", []))
 
 # ---------------------------------------------------------------------------
@@ -174,23 +175,23 @@ with tabs[0]:
 
     # Dynamic KPI calculations
     eff_prods = effective_products(source)
-    total_dem = sum(p.get("demand", 0) for p in eff_prods) if eff_prods else source.get("demand", 86331)
-    net_prod_mins = sum(p.get("demand", 0) * 480.0 / p.get("rate", 1) for p in eff_prods if p.get("rate", 0) > 0) if eff_prods else 27819.625384303745
-    opt_setup_mins = float(result.get("setup_minutes", 840.0)) if result else 840.0
+    total_dem = sum(p.get("demand", 0) for p in eff_prods)
+    net_prod_mins = sum(p.get("demand", 0) * 480.0 / p.get("rate", 1) for p in eff_prods if p.get("rate", 0) > 0)
+    opt_setup_mins = float(result.get("setup_minutes", 0.0)) if result else 0.0
     
     avail_shifts_cal = 74
     if cfg.get("weekday_shifts") is not None:
         import calendar as cal_mod
-        days_in_m = cal_mod.monthrange(cfg["year"], cfg["month"])[1]
+        days_in_m = cal_mod.monthrange(cfg.get("year", 2026), cfg.get("month", 9))[1]
         avail_shifts_cal = sum(
-            cfg["weekday_shifts"] if date(cfg["year"], cfg["month"], d).weekday() < 5
-            else cfg["saturday_shifts"] if date(cfg["year"], cfg["month"], d).weekday() == 5
-            else cfg["sunday_shifts"]
+            cfg.get("weekday_shifts", 3) if date(cfg.get("year", 2026), cfg.get("month", 9), d).weekday() < 5
+            else cfg.get("saturday_shifts", 2) if date(cfg.get("year", 2026), cfg.get("month", 9), d).weekday() == 5
+            else cfg.get("sunday_shifts", 0)
             for d in range(1, days_in_m + 1)
         )
     avail_mins_cal = avail_shifts_cal * (cfg.get("shift_hours", 8) * 60)
     
-    used_shifts_real = len([s for s in result["shifts"] if s.get("production_minutes", 0) > 0 or s.get("setup_minutes", 0) > 0]) if result and "shifts" in result else 60
+    used_shifts_real = len([s for s in result["shifts"] if s.get("production_minutes", 0) > 0 or s.get("setup_minutes", 0) > 0]) if result and "shifts" in result else 0
     free_shifts_real = max(0, avail_shifts_cal - used_shifts_real)
 
     tot_req_mins = net_prod_mins + opt_setup_mins
@@ -205,20 +206,22 @@ with tabs[0]:
     # Executive Metric Cards
     m1, m2, m3, m4 = st.columns(4)
     with m1:
+        card_m1_sub = "100% de cumplimiento · 0 pendientes" if (result and not result.get("missing")) else ("Sin productos cargados" if not eff_prods else (f"{pretty(result.get('missing', 0))} pendientes" if result else "Pendiente de optimizar"))
         st.markdown(f"""
         <div class="exec-card">
             <div class="card-title">Demanda Programada</div>
             <div class="card-value">{pretty(total_dem)} <span style="font-size:16px;color:#64748b;">ctn</span></div>
-            <div class="card-sub">100% de cumplimiento · 0 pendientes</div>
+            <div class="card-sub">{card_m1_sub}</div>
         </div>
         """, unsafe_allow_html=True)
 
     with m2:
+        card_m2_sub = '<span class="optimo-badge">★ Óptimo Demostrado</span>' if (result and result.get("optimization", {}).get("status") == "OPTIMAL" and opt_setup_mins > 0) else ('<span style="font-size:11px;color:#64748b;">Sin cambios</span>' if not eff_prods else '<span class="optimo-badge">★ Factible</span>')
         st.markdown(f"""
         <div class="exec-card">
             <div class="card-title">Tiempo de Cambios</div>
             <div class="card-value">{pretty(opt_setup_mins, 0)} min <span style="font-size:16px;color:#64748b;">({opt_setup_mins/60.0:.1f} h)</span></div>
-            <div class="card-sub"><span class="optimo-badge">★ Óptimo Demostrado</span></div>
+            <div class="card-sub">{card_m2_sub}</div>
         </div>
         """, unsafe_allow_html=True)
 
@@ -377,7 +380,7 @@ with tabs[0]:
 with tabs[1]:
     st.subheader("¿Qué necesitas fabricar?")
     st.caption("Edita los datos cargados o reemplázalos con los tres archivos Excel.")
-    st.caption(f"{len(source['products'])} productos cargados · Una línea por escenario")
+    st.caption(f"{len(source.get('products', []))} productos cargados · Una línea por escenario")
 
     with st.expander("Cargar los tres archivos Excel", expanded=False):
         cols = st.columns(3)
@@ -414,7 +417,7 @@ with tabs[1]:
 
     st.markdown("#### Productos y necesidades")
     st.caption("Puedes agregar o eliminar filas. La velocidad siempre se expresa por 8 horas, aunque configures turnos más cortos.")
-    base_products = pd.DataFrame(source["products"])
+    base_products = pd.DataFrame(source.get("products", []))
     edited = st.data_editor(
         base_products,
         num_rows="dynamic",
@@ -449,7 +452,7 @@ with tabs[1]:
         key=key("matrix_order_toggle")
     )
     order_choice = "family" if "Familia" in m_mode else "code"
-    current_mat = st.session_state.get(key("matrix_latest"), source["matrix"])
+    current_mat = st.session_state.get(key("matrix_latest"), source.get("matrix", {}))
     df_heatmap, ordered_ids, labels = get_ordered_matrix({"products": products, "matrix": current_mat}, order_by=order_choice)
     max_z = max(180.0, float(df_heatmap.values.max()) if df_heatmap.values.size > 0 else 180.0)
 
@@ -486,7 +489,7 @@ with tabs[1]:
         matrix_key = key("matrix_" + json.dumps(ids))
         seed_key = key("matrix_latest")
         if matrix_key + "_base" not in st.session_state:
-            st.session_state[matrix_key + "_base"] = copy.deepcopy(st.session_state.get(seed_key, source["matrix"]))
+            st.session_state[matrix_key + "_base"] = copy.deepcopy(st.session_state.get(seed_key, source.get("matrix", {})))
         matrix_seed = st.session_state[matrix_key + "_base"]
         grid = pd.DataFrame(
             {b: [matrix_seed.get(f"{a}|{b}", 0 if a == b else None) for a in ids] for b in ids},
@@ -512,12 +515,12 @@ with tabs[2]:
     st.subheader("¿Cuándo puede trabajar la línea?")
     st.caption("Configura los turnos operativos y paradas programadas de mantenimiento para el mes.")
     days = st.columns(3)
-    weekday = days[0].number_input("Turnos de lunes a viernes", 0, 3, cfg["weekday_shifts"], key=key("weekday"))
-    saturday = days[1].number_input("Turnos del sábado", 0, 3, cfg["saturday_shifts"], key=key("saturday"))
-    sunday = days[2].number_input("Turnos del domingo", 0, 3, cfg["sunday_shifts"], key=key("sunday"))
+    weekday = days[0].number_input("Turnos de lunes a viernes", 0, 3, cfg.get("weekday_shifts", 3), key=key("weekday"))
+    saturday = days[1].number_input("Turnos del sábado", 0, 3, cfg.get("saturday_shifts", 2), key=key("saturday"))
+    sunday = days[2].number_input("Turnos del domingo", 0, 3, cfg.get("sunday_shifts", 0), key=key("sunday"))
     timing = st.columns(2)
-    hours = timing[0].number_input("Horas por turno", 1, 12, cfg["shift_hours"], key=key("hours"))
-    first_hour = timing[1].number_input("Hora de inicio del turno 1", 0, 23, cfg["first_hour"], key=key("first_hour"))
+    hours = timing[0].number_input("Horas por turno", 1, 12, cfg.get("shift_hours", 8), key=key("hours"))
+    first_hour = timing[1].number_input("Hora de inicio del turno 1", 0, 23, cfg.get("first_hour", 6), key=key("first_hour"))
 
     import calendar
     shift_count = sum(
@@ -564,11 +567,11 @@ with tabs[2]:
             })
 
     with st.expander("Ajustes del escenario y tiempo del optimizador"):
-        growth = st.slider("Variación de la necesidad (%)", -100, 900, int(round((cfg["factor"] - 1) * 100)), key=key("growth"))
+        growth = st.slider("Variación de la necesidad (%)", -100, 900, int(round((cfg.get("factor", 1.0) - 1) * 100)), key=key("growth"))
         limit = st.number_input("Tiempo máximo de optimización (segundos)", 1, 120, int(cfg.get("time_limit", 15)), key=key("limit"))
 
     # Prepare current scenario
-    matrix_seed = st.session_state.get(key("matrix_latest"), source["matrix"])
+    matrix_seed = st.session_state.get(key("matrix_latest"), source.get("matrix", {}))
     current = {
         "version": 1,
         "name": name,
@@ -739,15 +742,13 @@ with tabs[4]:
     # Filter any stale IDs that don't exist in current scenario
     st.session_state.game_sequence = [fid for fid in st.session_state.game_sequence if fid in valid_fam_ids]
 
-    # Calculate theoretical optimum bound for families
-    off_diag_costs = [c for (f1, f2), c in block_dist.items() if f1 != f2 and c > 0]
-    min_inter_cost = min(off_diag_costs) if off_diag_costs else 120.0
-    bound_opt_mins = (len(families) - 1) * min_inter_cost if len(families) > 1 else 0.0
+    # Calculate theoretical optimum sequence and bound for families
+    optimal_seq, optimal_cost = find_optimal_family_sequence(families, block_dist)
 
     known_opt = ["3533", "3643", "15564", "5998", "6743", "6639", "3278", "3757"]
     is_volpak4 = all(k in valid_fam_ids for k in known_opt) and len(known_opt) == len(families)
     
-    opt_bound_display = 840 if (is_volpak4 or round(bound_opt_mins) == 840) else int(round(bound_opt_mins))
+    opt_bound_display = 840 if (is_volpak4 or round(optimal_cost) == 840) else int(round(optimal_cost))
     btn_opt_label = f"★ Cargar secuencia óptima ({opt_bound_display} min)"
 
     st.markdown(f"""
@@ -762,11 +763,7 @@ with tabs[4]:
         st.rerun()
 
     if btn_c2.button(btn_opt_label):
-        # The proven optimal sequence for Volpak 4 demo
-        if is_volpak4:
-            st.session_state.game_sequence = list(known_opt)
-        else:
-            st.session_state.game_sequence = [f["id"] for f in families]
+        st.session_state.game_sequence = list(optimal_seq)
         st.rerun()
 
     if btn_c3.button("🎲 Orden aleatorio"):
@@ -812,7 +809,7 @@ with tabs[4]:
         st.success(f"✓ ¡Has seleccionado las {len(families)} familias tecnológicas!")
 
     # Live Evaluation Scoreboard
-    eval_res = evaluate_family_sequence(chosen_ids, families, block_dist)
+    eval_res = evaluate_family_sequence(chosen_ids, families, block_dist, target_optimal_minutes=float(opt_bound_display))
 
     st.write("")
     st.markdown('<div class="game-scoreboard">', unsafe_allow_html=True)
@@ -881,9 +878,9 @@ with tabs[5]:
     """)
 
     eff_sim = effective_products(source)
-    base_dem = sum(p.get("demand", 0) for p in eff_sim) if eff_sim else 86331
-    base_net_mins = sum(p.get("demand", 0) * 480.0 / p.get("rate", 1) for p in eff_sim if p.get("rate", 0) > 0) if eff_sim else 27819.625384303745
-    base_setup_mins = float(result.get("setup_minutes", 840.0)) if result else 840.0
+    base_dem = sum(p.get("demand", 0) for p in eff_sim)
+    base_net_mins = sum(p.get("demand", 0) * 480.0 / p.get("rate", 1) for p in eff_sim if p.get("rate", 0) > 0)
+    base_setup_mins = float(result.get("setup_minutes", 0.0)) if result else 0.0
 
     delta_pct = st.slider(
         "Variación porcentual de la demanda total (%)",
@@ -929,7 +926,7 @@ with tabs[5]:
     # Real-time metrics
     s1, s2, s3, s4 = st.columns(4)
     s1.metric("Demanda Proyectada", f"{round(base_dem * sens['multiplier']):,} ctn", delta=f"{delta_pct:+d}%")
-    s2.metric("Minutos de Máquina", f"{sens['total_minutes']:,.0f} min", help=f"Producción: {sens['production_minutes']:,.0f} min · Cambios: 840 min")
+    s2.metric("Minutos de Máquina", f"{sens['total_minutes']:,.0f} min", help=f"Producción: {sens['production_minutes']:,.0f} min · Cambios: {sens['setup_minutes']:,.0f} min")
     s3.metric("Turnos Requeridos", f"{sens['shifts_required']:.2f} turnos", help="Turnos equivalentes de 8 horas")
     s4.metric("Ocupación L-S (74 turnos)", f"{sens['utilization_ls_pct']:.1f}%")
 
@@ -949,8 +946,8 @@ with tabs[5]:
     ))
 
     # Breakeven lines
-    fig_sens.add_vline(x=74, line_dash="dash", line_color="#f59e0b", line_width=2.5, annotation_text="Tope Lunes a Sábado: 74 turnos (Quiebre +24,7%)", annotation_position="top left")
-    fig_sens.add_vline(x=90, line_dash="dash", line_color="#ef4444", line_width=2.5, annotation_text="Tope Domingo a Domingo: 90 turnos (Quiebre +52,3%)", annotation_position="top right")
+    fig_sens.add_vline(x=sens["ls_shifts"], line_dash="dash", line_color="#f59e0b", line_width=2.5, annotation_text=f"Tope Lunes a Sábado: {sens['ls_shifts']} turnos (Quiebre {sens['ls_breakeven_pct']:+.1f}%)", annotation_position="top left")
+    fig_sens.add_vline(x=sens["dd_shifts"], line_dash="dash", line_color="#ef4444", line_width=2.5, annotation_text=f"Tope Domingo a Domingo: {sens['dd_shifts']} turnos (Quiebre {sens['dd_breakeven_pct']:+.1f}%)", annotation_position="top right")
 
     fig_sens.update_layout(
         height=180,

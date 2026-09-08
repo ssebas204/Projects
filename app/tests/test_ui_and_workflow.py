@@ -424,3 +424,69 @@ def test_app_dynamic_pareto_banner_content(demo):
     assert "17246" in banner_text
     assert "62.2%" in banner_text
 
+
+def test_app_empty_products_initial_boot_metrics(demo):
+    """Verify that an empty products scenario correctly renders 0 ctn, 0 shifts, and 0 min."""
+    app_path = str(Path(__file__).resolve().parents[1] / "app.py")
+    at = AppTest.from_file(app_path, default_timeout=30)
+    at.run()
+    assert not at.exception
+
+    # Swap to empty scenario and re-run
+    empty = copy.deepcopy(demo)
+    empty["products"] = []
+    empty["matrix"] = {}
+    at.session_state["source"] = empty
+    at.session_state["result"] = None
+    at.session_state["epoch"] += 1
+    at.run()
+
+    assert not at.exception
+    md_texts = " ".join(m.value for m in at.markdown)
+    assert '0 <span style="font-size:16px;color:#64748b;">ctn</span>' in md_texts
+    assert "Sin productos cargados" in md_texts
+    assert "0 / 74" in md_texts
+    assert "0 min" in md_texts
+    assert "Según capacidad y calendario" in md_texts
+
+
+def test_app_missing_config_keys_resilience(demo):
+    """Verify app does not crash with KeyError if scenario config is partial or missing."""
+    app_path = str(Path(__file__).resolve().parents[1] / "app.py")
+    at = AppTest.from_file(app_path, default_timeout=30)
+    at.run()
+    assert not at.exception
+
+    # Strip config keys
+    scen_no_cfg = copy.deepcopy(demo)
+    scen_no_cfg["config"] = {}
+    at.session_state["source"] = scen_no_cfg
+    at.session_state["epoch"] += 1
+    at.run()
+
+    # Must survive without KeyError: 'weekday_shifts', 'factor', or 'year'
+    assert not at.exception
+
+
+def test_app_mini_game_click_optimal_button_reaches_proven_optimum(demo):
+    """Verify that clicking the optimal sequence button solves the mini-game and displays the victory banner."""
+    app_path = str(Path(__file__).resolve().parents[1] / "app.py")
+    at = AppTest.from_file(app_path, default_timeout=30)
+    at.run()
+    assert not at.exception
+
+    # Find the optimal sequence button and click it
+    opt_btn = [b for b in at.button if "840 min" in b.label]
+    assert len(opt_btn) == 1
+    opt_btn[0].click().run()
+    assert not at.exception
+
+    # Confirm sequence is now fully loaded with 8 families
+    assert len(at.session_state["game_sequence"]) == 8
+
+    # Confirm celebration banner is rendered
+    md_texts = " ".join(m.value for m in at.markdown)
+    assert "ALCANZASTE EL ÓPTIMO DEMOSTRADO" in md_texts
+    assert "840 minutos" in md_texts
+
+

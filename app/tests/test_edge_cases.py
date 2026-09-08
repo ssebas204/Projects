@@ -21,6 +21,7 @@ from analytics import (
     calculate_sensitivity,
     detect_families,
     evaluate_family_sequence,
+    find_optimal_family_sequence,
     generate_sensitivity_table,
     get_augmented_comparisons,
     get_block_matrix,
@@ -305,4 +306,104 @@ def test_calculate_pareto_custom_subsets(demo):
     ins_2 = get_pareto_key_insights(df_2)
     assert len(ins_2["top_3_skus"]) == 2
     assert ins_2["top_3_pct"] == 100.0
+
+
+def test_get_block_matrix_with_none_entries():
+    """Verify get_block_matrix handles None matrix transition values without TypeError."""
+    scenario = {
+        "products": [
+            {"id": "1", "description": "Prod A"},
+            {"id": "2", "description": "Prod B"},
+            {"id": "3", "description": "Prod C"}
+        ],
+        "matrix": {
+            "1|2": None,
+            "2|1": 150.0,
+            "1|3": 120.0,
+            "3|1": None,
+            "2|3": 180.0,
+            "3|2": None
+        }
+    }
+    families = detect_families(scenario)
+    # Must not throw TypeError: float() argument must be a string or a real number, not 'NoneType'
+    bm = get_block_matrix(scenario, families)
+    assert isinstance(bm, dict)
+    assert bm[("1", "2")] == 180.0  # None falls back to 180.0 penalty
+    assert bm[("2", "1")] == 150.0
+
+
+def test_evaluate_family_sequence_single_family_completion():
+    """Verify single-family scenario correctly marks is_complete=True and is_optimal=True."""
+    single_fam = [{"id": "FAM_A", "name": "Familia A", "members": ["A1", "A2"]}]
+    single_dist = {("FAM_A", "FAM_A"): 0.0}
+    res = evaluate_family_sequence(["FAM_A"], single_fam, single_dist)
+    assert res["is_complete"] is True
+    assert res["is_optimal"] is True
+    assert res["total_minutes"] == 0.0
+    assert res["diff_minutes"] == 0.0
+
+
+def test_evaluate_family_sequence_repeated_families_never_complete(demo):
+    """Verify that repeating family IDs to match total length is rejected as incomplete and not optimal."""
+    families = detect_families(demo)
+    block_dist = get_block_matrix(demo, families)
+    num_fams = len(families)
+
+    # Repeating same family 8 times
+    repeated_seq = [families[0]["id"]] * num_fams
+    res_rep = evaluate_family_sequence(repeated_seq, families, block_dist)
+    assert res_rep["is_complete"] is False
+    assert res_rep["is_optimal"] is False
+
+    # Repeating some families with missing others
+    mixed_seq = [families[0]["id"], families[1]["id"], families[0]["id"]] + [families[i]["id"] for i in range(2, num_fams - 1)]
+    assert len(mixed_seq) == num_fams
+    assert len(set(mixed_seq)) < num_fams
+    res_mixed = evaluate_family_sequence(mixed_seq, families, block_dist)
+    assert res_mixed["is_complete"] is False
+    assert res_mixed["is_optimal"] is False
+
+
+def test_find_optimal_family_sequence(demo):
+    """Verify find_optimal_family_sequence identifies the true minimum cost sequence."""
+    families = detect_families(demo)
+    block_dist = get_block_matrix(demo, families)
+
+    # Volpak 4 known optimum
+    opt_seq, opt_cost = find_optimal_family_sequence(families, block_dist)
+    assert opt_cost == 840.0
+    assert len(opt_seq) == len(families)
+    assert set(opt_seq) == {f["id"] for f in families}
+
+    # Custom 3-family scenario
+    custom_families = [
+        {"id": "A", "name": "Fam A", "members": ["A"]},
+        {"id": "B", "name": "Fam B", "members": ["B"]},
+        {"id": "C", "name": "Fam C", "members": ["C"]}
+    ]
+    custom_dist = {
+        ("A", "A"): 0.0, ("B", "B"): 0.0, ("C", "C"): 0.0,
+        ("A", "B"): 100.0, ("B", "A"): 100.0,
+        ("B", "C"): 100.0, ("C", "B"): 100.0,
+        ("A", "C"): 250.0, ("C", "A"): 250.0,
+    }
+    best_seq, best_cost = find_optimal_family_sequence(custom_families, custom_dist)
+    assert best_cost == 200.0
+    assert best_seq in (["A", "B", "C"], ["C", "B", "A"])
+
+    # Empty and 1-family edge cases
+    assert find_optimal_family_sequence([], {}) == ([], 0.0)
+    assert find_optimal_family_sequence([custom_families[0]], {("A", "A"): 0.0}) == (["A"], 0.0)
+
+
+def test_get_augmented_comparisons_none_result():
+    """Verify get_augmented_comparisons safely handles None or empty results."""
+    for empty_input in [None, {}]:
+        df = get_augmented_comparisons(empty_input)
+        assert isinstance(df, pd.DataFrame)
+        assert df.empty
+        assert "Minutos de cambio" in df.columns
+        assert "Método" in df.columns
+
 
