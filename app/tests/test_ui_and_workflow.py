@@ -64,15 +64,19 @@ def test_app_clean_initialization():
 
 
 def test_app_theme_selector_toggles():
-    """Verify that changing background theme select runs without error."""
+    """Verify that changing background theme select runs without error and Blanco Puro is removed."""
     app_path = str(Path(__file__).resolve().parents[1] / "app.py")
     at = AppTest.from_file(app_path, default_timeout=30)
     at.run()
     assert not at.exception
     theme_select = [sb for sb in at.selectbox if "fondo" in sb.label.lower()]
     assert len(theme_select) >= 1
-    theme_select[0].select("⚪ Blanco Puro (#ffffff)").run()
+    # Verify Blanco Puro is NOT among options
+    assert not any("Blanco Puro" in opt for opt in theme_select[0].options)
+    # Select Modo Oscuro
+    theme_select[0].select("🌙 Modo Oscuro (#0b1329)").run()
     assert not at.exception
+    assert "Modo Oscuro" in at.session_state["ui_theme_select"]
 
 
 def test_app_interactive_sensitivity_slider():
@@ -624,12 +628,12 @@ def test_app_maturity_checklist_persistence_on_filter_and_presets():
     at.run()
     assert not at.exception
 
-    # Modify item 5 to "❌ No disponible"
+    # Iniciar en cero por defecto
     item5 = [r for r in at.radio if "#5" in r.label][0]
-    assert "✅" in item5.value
-    item5.set_value("❌ No disponible").run()
+    assert "❌" in item5.value
+    item5.set_value("✅ Sí (Disponible)").run()
     assert not at.exception
-    assert at.session_state["maturity_answers"][5] == "❌ No disponible"
+    assert at.session_state["maturity_answers"][5] == "✅ Sí (Disponible)"
 
     # Filter by BLOQUEANTE (hides item 5)
     crit_filter = [r for r in at.radio if "criticidad" in r.label.lower()][0]
@@ -638,14 +642,14 @@ def test_app_maturity_checklist_persistence_on_filter_and_presets():
     # Item 5 is not in rendered radio list
     assert not any("#5" in r.label for r in at.radio)
     # But internal persistent answer is preserved!
-    assert at.session_state["maturity_answers"][5] == "❌ No disponible"
+    assert at.session_state["maturity_answers"][5] == "✅ Sí (Disponible)"
 
     # Filter back to TODOS
     crit_filter = [r for r in at.radio if "criticidad" in r.label.lower()][0]
     crit_filter.set_value("TODOS").run()
     assert not at.exception
     item5_restored = [r for r in at.radio if "#5" in r.label][0]
-    assert item5_restored.value == "❌ No disponible"
+    assert item5_restored.value == "✅ Sí (Disponible)"
 
     # Click high maturity preset (100%)
     btn_full = [b for b in at.button if "100% disponible" in b.label][0]
@@ -655,6 +659,15 @@ def test_app_maturity_checklist_persistence_on_filter_and_presets():
     mat_metrics = [m for m in at.metric if "Madurez" in m.label]
     assert len(mat_metrics) == 1
     assert "100.0%" in mat_metrics[0].value
+
+    # Click reset to 0
+    btn_reset = [b for b in at.button if "Reiniciar diagnóstico" in b.label][0]
+    btn_reset.click().run()
+    assert not at.exception
+    for i in range(1, 15):
+        assert at.session_state["maturity_answers"][i] == "❌ No disponible", f"Item {i} is {at.session_state['maturity_answers'][i]}"
+    mat_metrics = [m for m in at.metric if "Madurez" in m.label]
+    assert "0.0%" in mat_metrics[0].value
 
 
 def test_no_raw_html_code_block_leaks():
@@ -697,3 +710,65 @@ def test_custom_scenario_clean_onboarding_no_volpak_leakage():
     # 3. Clean onboarding assistant card must be present
     assert "Configuración Inicial del Nuevo Escenario" in all_markdown
     assert "Cargar los 3 archivos Excel" in [b.label for b in at.button]
+
+
+def test_sidebar_completely_eliminated():
+    """Verify that st.sidebar contains 0 elements and app runs without sidebar dependency."""
+    app_path = str(Path(__file__).resolve().parents[1] / "app.py")
+    at = AppTest.from_file(app_path, default_timeout=30)
+    at.run()
+    assert not at.exception
+
+    # Enter Volpak 4 mode
+    volpak_btn = [b for b in at.button if "Volpak 4" in b.label][0]
+    volpak_btn.click().run()
+    assert not at.exception
+
+    # Verify sidebar is empty across all element types
+    assert len(at.sidebar.button) == 0
+    assert len(at.sidebar.selectbox) == 0
+    assert len(at.sidebar.markdown) == 0
+
+
+def test_base_case_excel_upload_protected():
+    """Verify that Caso Volpak 4 prevents uploading Excel files and displays protected benchmark notice."""
+    app_path = str(Path(__file__).resolve().parents[1] / "app.py")
+    at = AppTest.from_file(app_path, default_timeout=30)
+    at.run()
+    volpak_btn = [b for b in at.button if "Volpak 4" in b.label][0]
+    volpak_btn.click().run()
+    assert not at.exception
+
+    # In Tab 1 (Productos y Matriz), file uploaders must NOT exist in Base Case
+    assert len(at.get("file_uploader")) == 0, f"Expected 0 file uploaders in Base Case, found {len(at.get('file_uploader'))}"
+
+    # Protected banner text must be visible
+    info_texts = " ".join(i.value for i in at.info)
+    assert "Datos Maestros Protegidos" in info_texts
+    assert "Nuevo Escenario" in info_texts
+
+
+def test_maturity_starts_at_zero_and_has_exactly_two_buttons():
+    """Verify that Escalamiento a Planta checklist starts at 0% and provides only the 2 requested buttons."""
+    app_path = str(Path(__file__).resolve().parents[1] / "app.py")
+    at = AppTest.from_file(app_path, default_timeout=30)
+    at.run()
+
+    # Enter Nuevo Escenario
+    custom_btn = [b for b in at.button if "Nuevo Escenario" in b.label][0]
+    custom_btn.click().run()
+    assert not at.exception
+
+    # Verify initial maturity score is 0.0%
+    mat_metrics = [m for m in at.metric if "Madurez" in m.label]
+    assert len(mat_metrics) == 1
+    assert "0.0%" in mat_metrics[0].value
+    assert "0.0 / 27.0" in mat_metrics[0].delta
+
+    # Verify all 14 answers default to No disponible
+    assert all(at.session_state["maturity_answers"][i] == "❌ No disponible" for i in range(1, 15))
+
+    # Verify preset buttons: exactly 2 buttons (Simular 100% and Reiniciar 0)
+    preset_btns = [b for b in at.button if "100% disponible" in b.label or "Reiniciar diagnóstico a 0" in b.label]
+    assert len(preset_btns) == 2, f"Expected 2 preset buttons, found {len(preset_btns)}"
+    assert not any("diagnóstico típico" in b.label.lower() for b in at.button)

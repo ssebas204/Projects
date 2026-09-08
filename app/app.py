@@ -55,38 +55,33 @@ st.set_page_config(
 # ---------------------------------------------------------------------------
 # TEMA Y FONDO VISUAL (SELECTOR DINÁMICO GLOBAL)
 # ---------------------------------------------------------------------------
-if "ui_theme_select" not in st.session_state:
+if "ui_theme_select" not in st.session_state or "Blanco Puro" in st.session_state.get("ui_theme_select", ""):
     st.session_state.ui_theme_select = "🏢 Slate Técnico (#f8fafc)"
 
 theme_choice = st.session_state.ui_theme_select
 is_dark = "Modo Oscuro" in theme_choice
-is_pure_white = "Blanco Puro" in theme_choice
 
 if is_dark:
     bg_style = """
     .stApp { background: #0b1329 !important; color: #f1f5f9 !important; }
     .block-container { color: #f1f5f9 !important; }
     h1, h2, h3, h4 { color: #f8fafc !important; }
+    .app-header { border-bottom: 1px solid #334155 !important; }
     .app-header h1 { color: #f8fafc !important; }
     .app-header .tagline { color: #94a3b8 !important; }
-    .app-header .author { background: #1e293b !important; color: #cbd5e1 !important; }
-    .exec-card { background: #1e293b !important; border: 1px solid #334155 !important; }
+    .app-header .author { background: #1e293b !important; color: #cbd5e1 !important; border: 1px solid #334155 !important; }
+    .exec-card { background: #1e293b !important; border: 1px solid #334155 !important; color: #f8fafc !important; }
     .exec-card .card-title { color: #94a3b8 !important; }
     .exec-card .card-value { color: #f8fafc !important; }
     .exec-card .card-sub { color: #cbd5e1 !important; }
-    [data-testid="stMetric"] { background: #1e293b !important; border: 1px solid #334155 !important; }
+    [data-testid="stMetric"] { background: #1e293b !important; border: 1px solid #334155 !important; color: #f8fafc !important; }
     [data-testid="stMetricLabel"] { color: #94a3b8 !important; }
     [data-testid="stMetricValue"] { color: #f8fafc !important; }
     .game-scoreboard { background: #1e293b !important; border: 2px solid #3b82f6 !important; }
     .family-chip { background: #334155 !important; color: #f8fafc !important; border-color: #475569 !important; }
     div[data-testid="stTabs"] button { color: #cbd5e1 !important; }
-    """
-elif is_pure_white:
-    bg_style = """
-    .stApp { background: #ffffff !important; color: #0f172a !important; }
-    .block-container { background: #ffffff !important; }
-    .exec-card, [data-testid="stMetric"] { background: #ffffff !important; border: 1px solid #e2e8f0 !important; box-shadow: 0 1px 3px rgba(0,0,0,0.02) !important; }
-    .game-scoreboard { background: #ffffff !important; border: 2px solid #3b82f6 !important; }
+    div[data-testid="stTabs"] button[aria-selected="true"] { color: #38bdf8 !important; }
+    [data-testid="stExpander"] { border: 1px solid #334155 !important; background: #1e293b !important; }
     """
 else:
     bg_style = """
@@ -95,11 +90,15 @@ else:
     """
 
 st.markdown(f"""<style>
-.block-container {{padding-top:2.2rem;padding-bottom:3rem;max-width:1440px;}}
+/* Ocultar completamente el menú lateral y el botón colapsable << */
+[data-testid="stSidebar"], [data-testid="collapsedControl"], header[data-testid="stHeader"] button[kind="header"] {{
+    display: none !important;
+}}
+.block-container {{padding-top:3.6rem !important;padding-bottom:3rem;max-width:1440px;}}
 h1,h2,h3,h4 {{letter-spacing:-.025em;color:#0f172a;}}
-.app-header{{display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;border-bottom:1px solid #e2e8f0;padding-bottom:16px;margin-bottom:16px;}}
-.app-header h1{{font-size:28px;font-weight:700;color:#0f172a;margin:0;padding:0;}}
-.app-header .tagline{{font-size:14px;color:#64748b;font-weight:400;}}
+.app-header{{display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;border-bottom:1px solid #e2e8f0;padding-bottom:16px;margin-bottom:16px;overflow:visible !important;}}
+.app-header h1{{font-size:28px;font-weight:700;color:#0f172a;margin:0 0 4px 0 !important;padding:0;line-height:1.25 !important;}}
+.app-header .tagline{{font-size:14px;color:#64748b;font-weight:400;line-height:1.4 !important;}}
 .app-header .author{{font-size:13px;color:#334155;background:#e2e8f0;padding:4px 12px;border-radius:20px;font-weight:500;}}
 
 .editorial-box{{background:linear-gradient(135deg, #1e293b 0%, #0f172a 100%);color:#f8fafc;padding:22px 26px;border-radius:12px;margin-bottom:24px;box-shadow:0 4px 12px rgba(0,0,0,0.08);}}
@@ -215,13 +214,9 @@ if st.session_state.get("app_mode") is None:
 
         _, th_col, _ = st.columns([1, 2.5, 1])
         with th_col:
-            theme_opts = ["🏢 Slate Técnico (#f8fafc)", "⚪ Blanco Puro (#ffffff)", "🌙 Modo Oscuro (#0b1329)"]
+            theme_opts = ["🏢 Slate Técnico (#f8fafc)", "🌙 Modo Oscuro (#0b1329)"]
             cur_th = st.session_state.get("ui_theme_select", "🏢 Slate Técnico (#f8fafc)")
-            cur_idx = 0
-            if "Blanco Puro" in cur_th:
-                cur_idx = 1
-            elif "Modo Oscuro" in cur_th:
-                cur_idx = 2
+            cur_idx = 1 if "Modo Oscuro" in cur_th else 0
             chosen_th = st.selectbox(
                 "Color de fondo:",
                 theme_opts,
@@ -324,33 +319,6 @@ key = lambda name: f"{epoch}_{name}"
 cfg = source.get("config", {})
 is_volpak = (st.session_state.get("app_mode") == MODE_VOLPAK)
 
-# Sidebar: Modo activo y cambio de tema
-st.sidebar.markdown(f"**Modo activo:** {'📋 Caso Volpak 4' if is_volpak else '⚙️ Nuevo Escenario'}")
-if st.sidebar.button("🔄 Cambiar Modo / Volver al Inicio", key="btn_sidebar_mode_reset", use_container_width=True):
-    st.session_state.app_mode = None
-    st.rerun()
-
-st.sidebar.markdown("---")
-st.sidebar.markdown("### 🎨 Apariencia de Fondo")
-theme_opts = ["🏢 Slate Técnico (#f8fafc)", "⚪ Blanco Puro (#ffffff)", "🌙 Modo Oscuro (#0b1329)"]
-cur_th = st.session_state.get("ui_theme_select", "🏢 Slate Técnico (#f8fafc)")
-cur_idx = 0
-if "Blanco Puro" in cur_th:
-    cur_idx = 1
-elif "Modo Oscuro" in cur_th:
-    cur_idx = 2
-
-chosen_sb_theme = st.sidebar.selectbox(
-    "Color de fondo:",
-    theme_opts,
-    index=cur_idx,
-    key="sidebar_theme_select",
-    help="Permite alternar entre fondo blanco puro, slate corporativo y modo oscuro de alto contraste."
-)
-if chosen_sb_theme != cur_th:
-    st.session_state.ui_theme_select = chosen_sb_theme
-    st.rerun()
-
 # Header
 tagline_text = (
     "Línea Volpak 4 · Optimización exacta de cambios de formato con OR-Tools CP-SAT"
@@ -376,10 +344,11 @@ m_col1, m_col2 = st.columns([4.5, 1.5])
 with m_col1:
     mode_badge_label = "📋 Caso de Estudio: Línea Volpak 4 (Septiembre 2026)" if is_volpak else f"⚙️ Modo Activo: {source.get('name', 'Nuevo Escenario')}"
     st.markdown(clean_html(f"""
-    <div style="display:inline-flex;align-items:center;gap:8px;background:{'#1e293b' if is_dark else '#e2e8f0'};padding:5px 14px;border-radius:20px;font-size:13px;font-weight:600;color:{'#f8fafc' if is_dark else '#1e293b'};margin-bottom:12px;">
+    <div style="display:inline-flex;align-items:center;gap:8px;background:{'#1e293b' if is_dark else '#e2e8f0'};padding:6px 14px;border-radius:20px;font-size:13px;font-weight:600;color:{'#f8fafc' if is_dark else '#1e293b'};margin-top:2px;">
         <span>{mode_badge_label}</span>
     </div>
     """), unsafe_allow_html=True)
+
 with m_col2:
     if st.button("🔄 Cambiar de modo", key="btn_top_change_mode", use_container_width=True, help="Volver al selector inicial de escenarios"):
         st.session_state.app_mode = None
@@ -417,7 +386,7 @@ def go_step(index: int):
 if "next_step" in st.session_state:
     go_step(st.session_state.pop("next_step"))
 
-tabs = st.tabs(steps, key="workflow", on_change="rerun")
+tabs = st.tabs(steps)
 
 # Shared state & evaluation
 result = st.session_state.result
@@ -651,57 +620,63 @@ with tabs[0]:
             barmode="stack",
             height=100,
             margin=dict(l=10, r=10, t=28, b=10),
-            xaxis=dict(showgrid=False, range=[0, 100], ticksuffix="%", title=""),
+            xaxis=dict(showgrid=False, range=[0, 100], ticksuffix="%", title="", tickfont=dict(color="#94a3b8" if is_dark else "#475569")),
             yaxis=dict(showticklabels=False),
-            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1, font=dict(size=12, color="#0f172a")),
+            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1, font=dict(size=12, color="#f8fafc" if is_dark else "#0f172a")),
             paper_bgcolor="rgba(0,0,0,0)",
-            plot_bgcolor="#ffffff",
+            plot_bgcolor="#1e293b" if is_dark else "#ffffff",
         )
         st.plotly_chart(fig_cap, width="stretch")
 
-        # High-legibility metric chips below the horizontal capacity bar
-        st.markdown(clean_html(f"""
-        <div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(260px, 1fr));gap:14px;margin-top:10px;margin-bottom:24px;">
-            <div style="background:{'#1e293b' if is_dark else 'white'};border:1px solid {'#334155' if is_dark else '#e2e8f0'};border-left:5px solid #1b7a4b;border-radius:10px;padding:14px 18px;box-shadow:0 1px 3px rgba(0,0,0,0.03);">
+        # High-legibility metric chips below the horizontal capacity bar (3 columnas nativas compactas)
+        c_prod, c_chg, c_slack = st.columns(3)
+        with c_prod:
+            st.markdown(clean_html(f"""
+            <div style="background:{'#1e293b' if is_dark else 'white'};border:1px solid {'#166534' if is_dark else '#bbf7d0'};border-left:5px solid #16a34a;border-radius:10px;padding:12px 16px;box-shadow:0 1px 3px rgba(0,0,0,0.03);">
                 <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px;">
-                    <span style="font-size:13px;font-weight:700;color:#166534;letter-spacing:0.02em;">🟢 PRODUCCIÓN NETA</span>
-                    <span style="font-size:20px;font-weight:800;color:#1b7a4b;">{prod_occ_pct:.1f}%</span>
+                    <span style="font-size:12px;font-weight:700;color:#16a34a;letter-spacing:0.02em;">🟢 PRODUCCIÓN NETA</span>
+                    <span style="font-size:18px;font-weight:800;color:#16a34a;">{prod_occ_pct:.1f}%</span>
                 </div>
-                <div style="font-size:14px;font-weight:600;color:{'#f8fafc' if is_dark else '#0f172a'};margin-bottom:3px;">
-                    {prod_turns_calc:.2f} turnos <span style="font-size:13px;font-weight:400;color:#64748b;">({pretty(net_prod_mins, 0)} min · {net_prod_mins/60.0:.1f} h)</span>
+                <div style="font-size:13.5px;font-weight:600;color:{'#f8fafc' if is_dark else '#0f172a'};margin-bottom:2px;">
+                    {prod_turns_calc:.2f} turnos <span style="font-size:12px;font-weight:400;color:#94a3b8;">({pretty(net_prod_mins, 0)} min · {net_prod_mins/60.0:.1f} h)</span>
                 </div>
-                <div style="font-size:12px;color:#64748b;">
+                <div style="font-size:11.5px;color:{'#94a3b8' if is_dark else '#64748b'};">
                     Tiempo efectivo de envasado a velocidad de máquina
                 </div>
             </div>
+            """), unsafe_allow_html=True)
 
-            <div style="background:{'#1e293b' if is_dark else 'white'};border:1px solid {'#7c2d12' if is_dark else '#fed7aa'};border-left:5px solid #d97706;border-radius:10px;padding:14px 18px;box-shadow:0 1px 3px rgba(0,0,0,0.03);">
+        with c_chg:
+            st.markdown(clean_html(f"""
+            <div style="background:{'#1e293b' if is_dark else 'white'};border:1px solid {'#9a3412' if is_dark else '#fed7aa'};border-left:5px solid #ea580c;border-radius:10px;padding:12px 16px;box-shadow:0 1px 3px rgba(0,0,0,0.03);">
                 <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px;">
-                    <span style="font-size:13px;font-weight:700;color:#d97706;letter-spacing:0.02em;">🟠 CAMBIOS DE FORMATO</span>
-                    <span style="font-size:20px;font-weight:800;color:#d97706;">{setup_occ_pct:.1f}%</span>
+                    <span style="font-size:12px;font-weight:700;color:#ea580c;letter-spacing:0.02em;">🟠 CAMBIOS DE FORMATO</span>
+                    <span style="font-size:18px;font-weight:800;color:#ea580c;">{setup_occ_pct:.1f}%</span>
                 </div>
-                <div style="font-size:14px;font-weight:600;color:{'#f8fafc' if is_dark else '#0f172a'};margin-bottom:3px;">
-                    {setup_turns_calc:.2f} turnos <span style="font-size:13px;font-weight:400;color:#64748b;">({pretty(opt_setup_mins, 0)} min · {opt_setup_mins/60.0:.1f} h)</span>
+                <div style="font-size:13.5px;font-weight:600;color:{'#f8fafc' if is_dark else '#0f172a'};margin-bottom:2px;">
+                    {setup_turns_calc:.2f} turnos <span style="font-size:12px;font-weight:400;color:#94a3b8;">({pretty(opt_setup_mins, 0)} min · {opt_setup_mins/60.0:.1f} h)</span>
                 </div>
-                <div style="font-size:12px;color:#64748b;">
+                <div style="font-size:11.5px;color:{'#94a3b8' if is_dark else '#64748b'};">
                     Tiempos de setup minimizados por el optimizador
                 </div>
             </div>
+            """), unsafe_allow_html=True)
 
-            <div style="background:{'#1e293b' if is_dark else 'white'};border:1px solid {'#334155' if is_dark else '#e2e8f0'};border-left:5px solid #64748b;border-radius:10px;padding:14px 18px;box-shadow:0 1px 3px rgba(0,0,0,0.03);">
+        with c_slack:
+            st.markdown(clean_html(f"""
+            <div style="background:{'#1e293b' if is_dark else 'white'};border:1px solid {'#334155' if is_dark else '#e2e8f0'};border-left:5px solid #64748b;border-radius:10px;padding:12px 16px;box-shadow:0 1px 3px rgba(0,0,0,0.03);">
                 <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px;">
-                    <span style="font-size:13px;font-weight:700;color:{'#cbd5e1' if is_dark else '#334155'};letter-spacing:0.02em;">⚪ CAPACIDAD LIBRE (HOLGURA)</span>
-                    <span style="font-size:20px;font-weight:800;color:#64748b;">{free_occ_pct:.1f}%</span>
+                    <span style="font-size:12px;font-weight:700;color:{'#cbd5e1' if is_dark else '#475569'};letter-spacing:0.02em;">⚪ CAPACIDAD LIBRE (HOLGURA)</span>
+                    <span style="font-size:18px;font-weight:800;color:#64748b;">{free_occ_pct:.1f}%</span>
                 </div>
-                <div style="font-size:14px;font-weight:600;color:{'#f8fafc' if is_dark else '#0f172a'};margin-bottom:3px;">
-                    {free_turns_calc:.2f} turnos <span style="font-size:13px;font-weight:400;color:#64748b;">({pretty(free_turns_calc * 480.0, 0)} min · {(free_turns_calc * 480.0)/60.0:.1f} h)</span>
+                <div style="font-size:13.5px;font-weight:600;color:{'#f8fafc' if is_dark else '#0f172a'};margin-bottom:2px;">
+                    {free_turns_calc:.2f} turnos <span style="font-size:12px;font-weight:400;color:#94a3b8;">({pretty(free_turns_calc * 480.0, 0)} min · {(free_turns_calc * 480.0)/60.0:.1f} h)</span>
                 </div>
-                <div style="font-size:12px;color:#64748b;">
+                <div style="font-size:11.5px;color:{'#94a3b8' if is_dark else '#64748b'};">
                     Colchón operativo para absorber paradas o contingencias
                 </div>
             </div>
-        </div>
-        """), unsafe_allow_html=True)
+            """), unsafe_allow_html=True)
 
         st.write("")
         st.markdown("#### Análisis ABC / Pareto de carga de fabricación")
@@ -750,12 +725,12 @@ with tabs[0]:
             fig_p.update_layout(
                 height=380,
                 margin=dict(l=10, r=20, t=20, b=50),
-                legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0),
+                legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0, font=dict(color="#f8fafc" if is_dark else "#0f172a")),
                 paper_bgcolor="rgba(0,0,0,0)",
-                plot_bgcolor="#ffffff",
-                xaxis=dict(tickangle=-40),
-                yaxis=dict(title="Turnos de envasado", showgrid=True, gridcolor="#f1f5f9"),
-                yaxis2=dict(title="% Carga acumulada", overlaying="y", side="right", range=[0, 105], ticksuffix="%")
+                plot_bgcolor="#1e293b" if is_dark else "#ffffff",
+                xaxis=dict(tickangle=-40, tickfont=dict(color="#cbd5e1" if is_dark else "#475569")),
+                yaxis=dict(title="Turnos de envasado", showgrid=True, gridcolor="#334155" if is_dark else "#f1f5f9", title_font=dict(color="#f8fafc" if is_dark else "#0f172a"), tickfont=dict(color="#cbd5e1" if is_dark else "#475569")),
+                yaxis2=dict(title="% Carga acumulada", overlaying="y", side="right", range=[0, 105], ticksuffix="%", title_font=dict(color="#f8fafc" if is_dark else "#0f172a"), tickfont=dict(color="#cbd5e1" if is_dark else "#475569"))
             )
             st.plotly_chart(fig_p, width="stretch")
 
@@ -791,39 +766,45 @@ with tabs[1]:
     st.caption("Edita los datos cargados o reemplázalos con los tres archivos Excel.")
     st.caption(f"{len(source.get('products', []))} productos cargados · Una línea por escenario")
 
-    with st.expander("Cargar los tres archivos Excel", expanded=False):
-        cols = st.columns(3)
-        assignment = cols[0].file_uploader("Asignación de productos", type=["xlsx"], key=key("assignment"))
-        demand_file = cols[1].file_uploader("Necesidad de fabricación", type=["xlsx"], key=key("demand_file"))
-        matrix_file = cols[2].file_uploader("Matriz de cambios", type=["xlsx"], key=key("matrix_file"))
-        st.caption("Conserva los encabezados y el orden de columnas de los archivos originales. Se lee la primera hoja de cada archivo.")
-        if st.button("Cargar los tres Excel", disabled=not all([assignment, demand_file, matrix_file])):
-            try:
-                loaded = import_three(assignment.getvalue(), demand_file.getvalue(), matrix_file.getvalue(), cfg)
-                issues = validate(loaded)
-                if issues:
-                    st.error("\n\n".join(issues))
-                else:
-                    replace_scenario(loaded)
-            except Exception as exc:
-                st.error(f"No se pudo importar: {exc}")
+    if is_volpak:
+        st.info("🔒 **Caso de Estudio Volpak 4 (Datos Maestros Protegidos):** Este escenario de referencia contiene la parametrización estándar de la línea. Para cargar y optimizar tus propios archivos Excel, cambia al modo **Nuevo Escenario**.")
+        if st.button("Restablecer caso base Volpak 4", key=key("btn_reset_scenario")):
+            replace_scenario(demo())
+    else:
+        has_prods = len(source.get("products", [])) > 0
+        expander_label = "🔄 Reemplazar datos del escenario (Nuevos archivos Excel)" if has_prods else "Cargar los tres archivos Excel"
+        with st.expander(expander_label, expanded=not has_prods):
+            cols = st.columns(3)
+            assignment = cols[0].file_uploader("Asignación de productos", type=["xlsx"], key=key("assignment"))
+            demand_file = cols[1].file_uploader("Necesidad de fabricación", type=["xlsx"], key=key("demand_file"))
+            matrix_file = cols[2].file_uploader("Matriz de cambios", type=["xlsx"], key=key("matrix_file"))
+            st.caption("Conserva los encabezados y el orden de columnas de los archivos originales. Se lee la primera hoja de cada archivo.")
+            if st.button("Cargar los tres Excel", disabled=not all([assignment, demand_file, matrix_file])):
+                try:
+                    loaded = import_three(assignment.getvalue(), demand_file.getvalue(), matrix_file.getvalue(), cfg)
+                    issues = validate(loaded)
+                    if issues:
+                        st.error("\n\n".join(issues))
+                    else:
+                        replace_scenario(loaded)
+                except Exception as exc:
+                    st.error(f"No se pudo importar: {exc}")
 
-    with st.expander("Recuperar un escenario guardado"):
-        recovered = st.file_uploader("Escenario guardado (.json)", type=["json"], key=key("recovered"))
-        if st.button("Recuperar escenario", disabled=recovered is None):
-            try:
-                loaded = json.loads(recovered.getvalue())
-                issues = validate(loaded)
-                if issues or loaded.get("version") != 1:
-                    st.error("\n\n".join(issues) or "Versión de escenario no compatible.")
-                else:
-                    replace_scenario(loaded)
-            except Exception as exc:
-                st.error(f"No se pudo recuperar: {exc}")
+        with st.expander("Recuperar un escenario guardado (.json)", expanded=False):
+            recovered = st.file_uploader("Escenario guardado (.json)", type=["json"], key=key("recovered"))
+            if st.button("Recuperar escenario", disabled=recovered is None):
+                try:
+                    loaded = json.loads(recovered.getvalue())
+                    issues = validate(loaded)
+                    if issues or loaded.get("version") != 1:
+                        st.error("\n\n".join(issues) or "Versión de escenario no compatible.")
+                    else:
+                        replace_scenario(loaded)
+                except Exception as exc:
+                    st.error(f"No se pudo recuperar: {exc}")
 
-    btn_reset_label = "Restablecer caso base Volpak 4" if is_volpak else "Limpiar escenario en blanco"
-    if st.button(btn_reset_label, key=key("btn_reset_scenario")):
-        replace_scenario(demo() if is_volpak else copy.deepcopy(BLANK_SCENARIO))
+        if st.button("Limpiar escenario en blanco", key=key("btn_reset_scenario")):
+            replace_scenario(copy.deepcopy(BLANK_SCENARIO))
 
     st.markdown("#### Productos y necesidades")
     st.caption("Puedes agregar o eliminar filas. La velocidad siempre se expresa por 8 horas, aunque configures turnos más cortos.")
@@ -887,10 +868,10 @@ with tabs[1]:
     fig_hm.update_layout(
         height=540,
         margin=dict(l=10, r=10, t=20, b=10),
-        xaxis=dict(tickangle=-45, showgrid=False),
-        yaxis=dict(autorange="reversed", showgrid=False),
+        xaxis=dict(tickangle=-45, showgrid=False, tickfont=dict(color="#cbd5e1" if is_dark else "#0f172a")),
+        yaxis=dict(autorange="reversed", showgrid=False, tickfont=dict(color="#cbd5e1" if is_dark else "#0f172a")),
         paper_bgcolor="rgba(0,0,0,0)",
-        plot_bgcolor="#ffffff",
+        plot_bgcolor="#1e293b" if is_dark else "#ffffff",
     )
     st.plotly_chart(fig_hm, width="stretch")
 
@@ -1369,10 +1350,10 @@ with tabs[5]:
         fig_sens.update_layout(
             height=180,
             margin=dict(l=10, r=20, t=30, b=20),
-            xaxis=dict(title="Turnos equivalentes", range=[0, max(105, sens["shifts_required"] + 5)], showgrid=True),
+            xaxis=dict(title="Turnos equivalentes", range=[0, max(105, sens["shifts_required"] + 5)], showgrid=True, gridcolor="#334155" if is_dark else "#f1f5f9", title_font=dict(color="#f8fafc" if is_dark else "#0f172a"), tickfont=dict(color="#cbd5e1" if is_dark else "#475569")),
             yaxis=dict(showticklabels=False),
             paper_bgcolor="rgba(0,0,0,0)",
-            plot_bgcolor="#ffffff",
+            plot_bgcolor="#1e293b" if is_dark else "#ffffff",
             showlegend=False
         )
         st.plotly_chart(fig_sens, width="stretch")
@@ -1412,10 +1393,10 @@ with tabs[6]:
         fig_comp.update_layout(
             height=320,
             margin=dict(l=10, r=20, t=10, b=10),
-            yaxis=dict(autorange="reversed"),
-            xaxis=dict(title="Minutos totales de cambio de formato", showgrid=True, gridcolor="#f1f5f9"),
+            yaxis=dict(autorange="reversed", tickfont=dict(color="#cbd5e1" if is_dark else "#0f172a")),
+            xaxis=dict(title="Minutos totales de cambio de formato", showgrid=True, gridcolor="#334155" if is_dark else "#f1f5f9", title_font=dict(color="#f8fafc" if is_dark else "#0f172a"), tickfont=dict(color="#cbd5e1" if is_dark else "#475569")),
             paper_bgcolor="rgba(0,0,0,0)",
-            plot_bgcolor="#ffffff",
+            plot_bgcolor="#1e293b" if is_dark else "#ffffff",
         )
         st.plotly_chart(fig_comp, width="stretch")
 
@@ -1542,15 +1523,15 @@ with tabs[7]:
                       else f'<span class="badge-refinamiento">REFINAMIENTO</span>')
             )
             st.markdown(f"""
-            <div style="background:white;border:1px solid #e2e8f0;border-left:5px solid {item['color']};border-radius:8px;padding:16px 20px;margin-bottom:12px;box-shadow:0 1px 3px rgba(0,0,0,0.02);">
+            <div style="background:{'#1e293b' if is_dark else 'white'};border:1px solid {'#334155' if is_dark else '#e2e8f0'};border-left:5px solid {item['color']};border-radius:8px;padding:16px 20px;margin-bottom:12px;box-shadow:0 1px 3px rgba(0,0,0,0.02);">
                 <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
-                    <span style="font-size:16px;font-weight:700;color:#0f172a;">#{item['num']} · {item['item']}</span>
+                    <span style="font-size:16px;font-weight:700;color:{'#f8fafc' if is_dark else '#0f172a'};">#{item['num']} · {item['item']}</span>
                     {c_badge}
                 </div>
-                <div style="font-size:14px;color:#334155;margin-bottom:6px;">
+                <div style="font-size:14px;color:{'#cbd5e1' if is_dark else '#334155'};margin-bottom:6px;">
                     <strong>¿Por qué se necesita?</strong> {item['reason']}
                 </div>
-                <div style="font-size:13.5px;color:#64748b;">
+                <div style="font-size:13.5px;color:{'#94a3b8' if is_dark else '#64748b'};">
                     <strong>¿Qué cambia en el modelo matemático?</strong> {item['impact']}
                 </div>
             </div>
@@ -1568,9 +1549,7 @@ with tabs[7]:
         chk_options = ["✅ Sí (Disponible)", "🔄 En proceso", "❌ No disponible"]
         if "maturity_answers" not in st.session_state:
             st.session_state.maturity_answers = {
-                n: ("✅ Sí (Disponible)" if DEFAULT_MATURITY_RESPONSES.get(n) == "SI"
-                    else ("🔄 En proceso" if DEFAULT_MATURITY_RESPONSES.get(n) == "EN_PROCESO"
-                          else "❌ No disponible"))
+                n: "❌ No disponible"
                 for n in range(1, 15)
             }
 
@@ -1604,29 +1583,20 @@ with tabs[7]:
         else:
             st.success(f"🎯 **Viabilidad Asegurada:** ¡Todos los datos maestros bloqueantes están cubiertos! {mat['recommendation']}")
 
-        # Quick preset buttons
-        b1, b2, b3 = st.columns(3)
-        if b1.button("📋 Cargar diagnóstico típico (Mono-línea activa)", key=key("btn_preset_mono")):
-            for _, it in all_scale.iterrows():
-                n = int(it["num"])
-                def_stat = DEFAULT_MATURITY_RESPONSES.get(n, "EN_PROCESO")
-                val = "✅ Sí (Disponible)" if def_stat == "SI" else ("🔄 En proceso" if def_stat == "EN_PROCESO" else "❌ No disponible")
-                st.session_state.maturity_answers[n] = val
-                st.session_state[f"maturity_chk_{n}"] = val
-            st.rerun()
-
-        if b2.button("🌟 Simular planta de alta madurez (100% disponible)", key=key("btn_preset_full")):
+        # Quick preset buttons (Exactamente 2 opciones: simular alta madurez y reiniciar a 0)
+        b1, b2 = st.columns(2)
+        if b1.button("🌟 Simular planta de alta madurez (100% disponible)", key=key("btn_preset_full"), use_container_width=True):
             for _, it in all_scale.iterrows():
                 n = int(it["num"])
                 st.session_state.maturity_answers[n] = "✅ Sí (Disponible)"
                 st.session_state[f"maturity_chk_{n}"] = "✅ Sí (Disponible)"
             st.rerun()
 
-        if b3.button("🔄 Reiniciar diagnóstico a 'En proceso'", key=key("btn_preset_reset")):
+        if b2.button("🔄 Reiniciar diagnóstico a 0", key=key("btn_preset_reset"), use_container_width=True):
             for _, it in all_scale.iterrows():
                 n = int(it["num"])
-                st.session_state.maturity_answers[n] = "🔄 En proceso"
-                st.session_state[f"maturity_chk_{n}"] = "🔄 En proceso"
+                st.session_state.maturity_answers[n] = "❌ No disponible"
+                st.session_state[f"maturity_chk_{n}"] = "❌ No disponible"
             st.rerun()
 
         st.write("")
@@ -1660,15 +1630,15 @@ with tabs[7]:
             card_col1, card_col2 = st.columns([2.8, 1.2])
             with card_col1:
                 st.markdown(f"""
-                <div style="background:white;border:1px solid #e2e8f0;border-left:5px solid {item['color']};border-radius:8px 0 0 8px;padding:14px 18px;min-height:115px;">
+                <div style="background:{'#1e293b' if is_dark else 'white'};border:1px solid {'#334155' if is_dark else '#e2e8f0'};border-left:5px solid {item['color']};border-radius:8px 0 0 8px;padding:14px 18px;min-height:115px;">
                     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
-                        <span style="font-size:15px;font-weight:700;color:#0f172a;">#{item['num']} · {item['item']}</span>
+                        <span style="font-size:15px;font-weight:700;color:{'#f8fafc' if is_dark else '#0f172a'};">#{item['num']} · {item['item']}</span>
                         {c_badge}
                     </div>
-                    <div style="font-size:13px;color:#334155;margin-bottom:4px;">
+                    <div style="font-size:13px;color:{'#cbd5e1' if is_dark else '#334155'};margin-bottom:4px;">
                         <strong>¿Por qué se necesita?</strong> {item['reason']}
                     </div>
-                    <div style="font-size:12.5px;color:#64748b;">
+                    <div style="font-size:12.5px;color:{'#94a3b8' if is_dark else '#64748b'};">
                         <strong>Impacto matemático:</strong> {item['impact']}
                     </div>
                 </div>
@@ -1676,7 +1646,7 @@ with tabs[7]:
             with card_col2:
                 st.markdown("""<div style="height:6px;"></div>""", unsafe_allow_html=True)
                 chk_key = f"maturity_chk_{item_n}"
-                saved_val = st.session_state.maturity_answers.get(item_n, "🔄 En proceso")
+                saved_val = st.session_state.maturity_answers.get(item_n, "❌ No disponible")
                 saved_idx = chk_options.index(saved_val) if saved_val in chk_options else 1
                 if chk_key in st.session_state:
                     st.radio(
