@@ -1,0 +1,46 @@
+name: CI & Auditoría Técnica Automatizada
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  audit-and-verify:
+    name: Verificación de Integridad y QA Severo
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout del Repositorio
+      uses: actions/checkout@v4
+
+    - name: Configurar Python 3.12
+      uses: actions/setup-python@v5
+      with:
+        python-version: "3.12"
+        cache: 'pip'
+
+    - name: Instalar Dependencias del Proyecto
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+        pip install pytest
+
+    - name: Ejecutar Suite de Auditoría y QA (Pytest)
+      run: |
+        cd app
+        pytest tests -v --junitxml=../audit-results.xml
+
+    - name: Validar Integridad de Documentación Técnica
+      run: |
+        test -f DOCUMENTACION_TECNICA.md
+        echo "DOCUMENTACION_TECNICA.md validada correctamente."
+
+    - name: Publicar Reporte de Auditoría
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: reporte-auditoria-qa
+        path: audit-results.xml

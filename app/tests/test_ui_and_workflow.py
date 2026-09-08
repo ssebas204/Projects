@@ -41,9 +41,20 @@ def test_app_clean_initialization():
     app_path = str(Path(__file__).resolve().parents[1] / "app.py")
     at = AppTest.from_file(app_path, default_timeout=30)
     at.run()
-    assert not at.exception, f"App threw uncaught exception on boot: {at.exception}"
-    main_tab_labels = [t.label for t in at.tabs if any(s in t.label for s in ["Resumen", "Productos", "Calendario", "Plan", "Reta", "Simulador", "Métodos", "Escalamiento"])]
-    assert len(main_tab_labels) == 8, f"Expected 8 main tabs, found {len(main_tab_labels)}"
+    main_tab_labels = [t.label for t in at.tabs if any(s in t.label for s in ["Resumen", "Productos", "Calendario", "Plan", "Reta", "Simulador", "Métodos", "Escalamiento", "Auditoría"])]
+    assert len(main_tab_labels) == 9, f"Expected 9 main tabs, found {len(main_tab_labels)}"
+
+
+def test_app_theme_selector_toggles():
+    """Verify that changing background theme select runs without error."""
+    app_path = str(Path(__file__).resolve().parents[1] / "app.py")
+    at = AppTest.from_file(app_path, default_timeout=30)
+    at.run()
+    assert not at.exception
+    theme_select = [sb for sb in at.selectbox if "fondo" in sb.label.lower()]
+    assert len(theme_select) >= 1
+    theme_select[0].select("⚪ Blanco Puro (#ffffff)").run()
+    assert not at.exception
 
 
 def test_app_interactive_sensitivity_slider():
