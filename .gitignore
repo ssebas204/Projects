@@ -19,3 +19,5 @@ __pycache__/
 
 # Streamlit local secrets
 .streamlit/secrets.toml
+.vercel
+.env*
