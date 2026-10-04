@@ -1,0 +1,868 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Árbol de Decisión VME</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg: #f5f3ee;
+  --surface: #ffffff;
+  --surface-2: #ece9e0;
+  --border: #ddd7c8;
+  --text: #232620;
+  --text-muted: #726c5c;
+  --accent-decision: #24505f;
+  --accent-decision-soft: #dbe7e9;
+  --accent-chance: #ad7a2c;
+  --accent-chance-soft: #f2e3c8;
+  --accent-optimal: #2c7a52;
+  --accent-optimal-soft: #dcefe1;
+  --accent-pruned: #a2453d;
+  --accent-pruned-soft: #f2dedb;
+  --shadow: rgba(35,38,32,0.10);
+  --focus-ring: #24505f;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #14171a;
+    --surface: #1b1f22;
+    --surface-2: #21252a;
+    --border: #2c3136;
+    --text: #e9e6dc;
+    --text-muted: #9a9587;
+    --accent-decision: #7fb3c4;
+    --accent-decision-soft: #223b42;
+    --accent-chance: #d9a552;
+    --accent-chance-soft: #3a2d1a;
+    --accent-optimal: #63bd8d;
+    --accent-optimal-soft: #1b3226;
+    --accent-pruned: #d4847a;
+    --accent-pruned-soft: #3a2321;
+    --shadow: rgba(0,0,0,0.45);
+    --focus-ring: #7fb3c4;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #14171a;
+  --surface: #1b1f22;
+  --surface-2: #21252a;
+  --border: #2c3136;
+  --text: #e9e6dc;
+  --text-muted: #9a9587;
+  --accent-decision: #7fb3c4;
+  --accent-decision-soft: #223b42;
+  --accent-chance: #d9a552;
+  --accent-chance-soft: #3a2d1a;
+  --accent-optimal: #63bd8d;
+  --accent-optimal-soft: #1b3226;
+  --accent-pruned: #d4847a;
+  --accent-pruned-soft: #3a2321;
+  --shadow: rgba(0,0,0,0.45);
+  --focus-ring: #7fb3c4;
+}
+* { box-sizing: border-box; }
+@media (prefers-reduced-motion: reduce) {
+  * { transition: none !important; animation: none !important; }
+}
+html, body {
+  margin: 0;
+  padding: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: "IBM Plex Sans", -apple-system, "Segoe UI", sans-serif;
+  height: 100%;
+}
+.num { font-family: "IBM Plex Mono", ui-monospace, SFMono-Regular, monospace; font-variant-numeric: tabular-nums; }
+button, input, select { font-family: inherit; font-size: inherit; color: inherit; }
+:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+
+.app-shell { display: flex; flex-direction: column; min-height: 100vh; }
+
+.topbar {
+  display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px;
+  padding: 14px 20px; border-bottom: 1px solid var(--border); background: var(--surface);
+}
+.brand { display: flex; align-items: baseline; gap: 10px; }
+.brand h1 { font-size: 1.15rem; font-weight: 700; margin: 0; letter-spacing: -0.01em; }
+.brand span { font-size: 0.78rem; color: var(--text-muted); }
+.toolbar { display: flex; gap: 8px; flex-wrap: wrap; }
+.btn {
+  border: 1px solid var(--border); background: var(--surface); color: var(--text);
+  padding: 7px 12px; border-radius: 7px; cursor: pointer; font-size: 0.82rem; font-weight: 500;
+  display: inline-flex; align-items: center; gap: 6px; transition: background-color .12s, border-color .12s;
+}
+.btn:hover { background: var(--surface-2); }
+.btn:disabled { opacity: .4; cursor: not-allowed; }
+.btn:disabled:hover { background: var(--surface); }
+.btn-primary { background: var(--accent-decision); border-color: var(--accent-decision); color: #fff; }
+.btn-primary:hover { filter: brightness(1.08); }
+.btn-danger { color: var(--accent-pruned); }
+input[type="file"] { display: none; }
+
+.layout { display: grid; grid-template-columns: 340px 1fr; flex: 1; min-height: 0; }
+@media (max-width: 860px) { .layout { grid-template-columns: 1fr; } }
+
+.sidebar {
+  border-right: 1px solid var(--border); background: var(--surface);
+  display: flex; flex-direction: column; min-height: 0; overflow-y: auto;
+}
+.panel { padding: 16px; border-bottom: 1px solid var(--border); }
+.panel h2 { font-size: 0.7rem; text-transform: uppercase; letter-spacing: .08em; color: var(--text-muted); margin: 0 0 10px; font-weight: 600; }
+
+.summary-vme { font-size: 1.7rem; font-weight: 600; }
+.summary-vme .cur { font-size: 1rem; color: var(--text-muted); margin-right: 4px; }
+.rec-list { list-style: none; margin: 10px 0 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.rec-item { font-size: 0.82rem; line-height: 1.4; padding: 8px 10px; border-radius: 7px; background: var(--accent-optimal-soft); border: 1px solid var(--accent-optimal); }
+.rec-item .who { font-weight: 600; }
+.rec-item .val { float: right; }
+.warn-item { font-size: 0.78rem; padding: 8px 10px; border-radius: 7px; background: var(--accent-pruned-soft); border: 1px solid var(--accent-pruned); margin-top: 8px; }
+
+.outline { list-style: none; margin: 0; padding: 0; }
+.outline ul { list-style: none; margin: 0; padding-left: 16px; border-left: 1px dashed var(--border); }
+.outline-row {
+  display: flex; align-items: center; gap: 6px; padding: 5px 6px; border-radius: 6px; cursor: pointer; font-size: 0.82rem;
+}
+.outline-row:hover { background: var(--surface-2); }
+.outline-row.selected { background: var(--accent-decision-soft); font-weight: 600; }
+.tag { width: 15px; height: 15px; flex: none; display: inline-flex; align-items: center; justify-content: center; font-size: 0.6rem; font-weight: 700; color: #fff; }
+.tag.decision { background: var(--accent-decision); border-radius: 3px; }
+.tag.azar { background: var(--accent-chance); border-radius: 50%; }
+.tag.resultado { background: var(--text-muted); clip-path: polygon(0 0, 100% 50%, 0 100%); }
+.outline-label { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.outline-val { color: var(--text-muted); }
+
+.editor .field { margin-bottom: 12px; }
+.editor label { display: block; font-size: 0.72rem; color: var(--text-muted); margin-bottom: 4px; text-transform: uppercase; letter-spacing: .05em; }
+.editor input, .editor select {
+  width: 100%; padding: 7px 9px; border-radius: 6px; border: 1px solid var(--border); background: var(--bg); color: var(--text);
+}
+.editor-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 4px; }
+.empty-hint { font-size: 0.8rem; color: var(--text-muted); }
+
+.legend { display: flex; flex-direction: column; gap: 7px; font-size: 0.76rem; color: var(--text-muted); }
+.legend-row { display: flex; align-items: center; gap: 8px; }
+.legend-swatch { width: 14px; height: 14px; flex: none; }
+.legend-swatch.decision { background: var(--accent-decision); border-radius: 3px; }
+.legend-swatch.azar { background: var(--accent-chance); border-radius: 50%; }
+.legend-swatch.resultado { background: var(--text-muted); clip-path: polygon(0 0, 100% 50%, 0 100%); }
+.legend-swatch.optimal { background: var(--accent-optimal); border-radius: 3px; }
+.legend-swatch.pruned { background: var(--accent-pruned); border-radius: 3px; opacity: .6; }
+
+.canvas-area { display: flex; flex-direction: column; min-height: 0; }
+.canvas-toolbar { display: flex; align-items: center; gap: 8px; padding: 8px 14px; border-bottom: 1px solid var(--border); background: var(--surface); }
+.canvas-toolbar .zoom-label { font-size: 0.78rem; color: var(--text-muted); min-width: 42px; text-align: center; }
+.canvas-wrap { flex: 1; overflow: auto; background: var(--bg); }
+.canvas-wrap svg { display: block; }
+
+.edge { stroke: var(--border); stroke-width: 2; fill: none; }
+.edge.optimal { stroke: var(--accent-optimal); stroke-width: 3; }
+.edge.pruned { stroke: var(--accent-pruned); stroke-width: 2; opacity: .5; stroke-dasharray: 5 4; }
+.prune-mark { stroke: var(--accent-pruned); stroke-width: 2.5; }
+
+.shape-decision { fill: var(--accent-decision); stroke: var(--accent-decision); }
+.shape-azar { fill: var(--accent-chance); stroke: var(--accent-chance); }
+.shape-resultado { fill: var(--text-muted); stroke: var(--text-muted); }
+.node-letter { fill: #fff; font-size: 12px; font-weight: 700; text-anchor: middle; dominant-baseline: central; font-family: "IBM Plex Mono", monospace; }
+
+.lbl-etiqueta { fill: var(--text); font-size: 12.5px; font-weight: 600; text-anchor: middle; }
+.lbl-prob { fill: var(--accent-chance); font-size: 12px; font-weight: 600; text-anchor: middle; font-family: "IBM Plex Mono", monospace; }
+.lbl-value { font-size: 12.5px; font-weight: 600; text-anchor: middle; font-family: "IBM Plex Mono", monospace; }
+.lbl-value.optimal { fill: var(--accent-optimal); }
+.lbl-value.pruned { fill: var(--accent-pruned); opacity: .65; }
+.lbl-value.plain { fill: var(--text); }
+.lbl-terminal { font-size: 13px; font-weight: 700; fill: var(--text); font-family: "IBM Plex Mono", monospace; }
+.lbl-root-prompt { fill: var(--text); font-size: 13px; font-weight: 600; text-anchor: start; }
+</style>
+</head>
+<body>
+<div class="app-shell">
+  <header class="topbar">
+    <div class="brand">
+      <h1>Árbol de Decisión VME</h1>
+      <span>Calculadora de valor monetario esperado — by: Sebastian Parra</span>
+    </div>
+    <div class="toolbar">
+      <button class="btn" id="btn-deshacer" disabled>↩ Deshacer</button>
+      <button class="btn" id="btn-nuevo">Nuevo árbol</button>
+      <button class="btn" id="btn-caso1">Ejemplo: Compra unidades</button>
+      <button class="btn" id="btn-caso2">Ejemplo: Líneas fabricación</button>
+      <button class="btn" id="btn-volumen">Ejemplo: Volumen producción</button>
+      <button class="btn" id="btn-iluminador">Ejemplo: Tamaño planta</button>
+      <button class="btn" id="btn-guardar">Guardar (.json)</button>
+      <label class="btn" for="file-cargar">Cargar (.json)</label>
+      <input type="file" id="file-cargar" accept="application/json">
+      <button class="btn btn-primary" id="btn-descargar-img">⬇ Descargar imagen (.png)</button>
+    </div>
+  </header>
+
+  <div class="layout">
+    <aside class="sidebar">
+      <div class="panel">
+        <h2>Resultado</h2>
+        <div class="summary-vme"><span class="cur num">VME</span><span id="vme-total" class="num">—</span></div>
+        <ul class="rec-list" id="rec-list"></ul>
+      </div>
+      <div class="panel">
+        <h2>Estructura del árbol</h2>
+        <ul class="outline" id="outline"></ul>
+      </div>
+      <div class="panel editor">
+        <h2>Editar nodo</h2>
+        <div id="editor-body"></div>
+      </div>
+      <div class="panel">
+        <h2>Leyenda</h2>
+        <div class="legend">
+          <div class="legend-row"><span class="legend-swatch decision"></span>Nodo de decisión</div>
+          <div class="legend-row"><span class="legend-swatch azar"></span>Nodo de azar</div>
+          <div class="legend-row"><span class="legend-swatch resultado"></span>Resultado final</div>
+          <div class="legend-row"><span class="legend-swatch optimal"></span>Rama óptima</div>
+          <div class="legend-row"><span class="legend-swatch pruned"></span>Rama descartada</div>
+        </div>
+      </div>
+    </aside>
+
+    <section class="canvas-area">
+      <div class="canvas-toolbar">
+        <button class="btn" id="btn-zoom-out">−</button>
+        <span class="zoom-label" id="zoom-label">100%</span>
+        <button class="btn" id="btn-zoom-in">+</button>
+        <button class="btn" id="btn-zoom-reset">Ajustar</button>
+      </div>
+      <div class="canvas-wrap" id="canvas-wrap">
+        <svg id="tree-svg" xmlns="http://www.w3.org/2000/svg"></svg>
+      </div>
+    </section>
+  </div>
+</div>
+
+<script>
+(function () {
+  var nodeIdCounter = 1;
+  var selectedId = null;
+  var zoom = 1;
+  var undoStack = [];
+
+  function limpiarComputados(k, v) { return k.indexOf('_') === 0 ? undefined : v; }
+
+  function guardarHistorial() {
+    undoStack.push(JSON.stringify(root, limpiarComputados));
+    if (undoStack.length > 50) undoStack.shift();
+    var btn = document.getElementById('btn-deshacer');
+    if (btn) btn.disabled = false;
+  }
+
+  function deshacer() {
+    if (!undoStack.length) return;
+    root = JSON.parse(undoStack.pop());
+    if (!findNode(root, selectedId)) selectedId = root.id;
+    calcular(root); layout(); renderAll();
+    document.getElementById('btn-deshacer').disabled = !undoStack.length;
+  }
+
+  function makeNode(tipo, etiqueta, overrides) {
+    var n = { id: nodeIdCounter++, tipo: tipo, etiqueta: etiqueta, probabilidad: null, valor: 0, costo: 0, hijos: [] };
+    if (overrides) for (var k in overrides) n[k] = overrides[k];
+    return n;
+  }
+
+  function clonarConNuevosIds(n) {
+    return {
+      id: nodeIdCounter++,
+      tipo: n.tipo,
+      etiqueta: n.etiqueta,
+      probabilidad: n.probabilidad,
+      valor: n.valor,
+      costo: n.costo,
+      hijos: n.hijos.map(clonarConNuevosIds)
+    };
+  }
+
+  var root;
+
+  function blankTree() {
+    nodeIdCounter = 1;
+    root = makeNode('decision', '¿Qué decisión debo tomar?');
+    selectedId = root.id;
+  }
+
+  function casoUno() {
+    nodeIdCounter = 1;
+    root = makeNode('decision', '¿Cuántas unidades comprar?', {
+      hijos: [
+        makeNode('azar', '1.000 unidades', {
+          hijos: [
+            makeNode('resultado', 'Demanda Alta', { probabilidad: 0.6, valor: 30000 }),
+            makeNode('resultado', 'Demanda Baja', { probabilidad: 0.4, valor: 20000 })
+          ]
+        }),
+        makeNode('azar', '2.000 unidades', {
+          hijos: [
+            makeNode('resultado', 'Demanda Alta', { probabilidad: 0.6, valor: 45000 }),
+            makeNode('resultado', 'Demanda Baja', { probabilidad: 0.4, valor: 5000 })
+          ]
+        })
+      ]
+    });
+    selectedId = root.id;
+  }
+
+  function casoDos() {
+    nodeIdCounter = 1;
+    root = makeNode('decision', '¿Comprar una línea o dos líneas de fabricación?', {
+      hijos: [
+        makeNode('azar', 'Comprar las dos líneas', {
+          hijos: [
+            makeNode('resultado', 'Demanda Baja', { probabilidad: 0.3, valor: 90000 }),
+            makeNode('resultado', 'Demanda Alta', { probabilidad: 0.7, valor: 170000 })
+          ]
+        }),
+        makeNode('azar', 'Comprar una línea', {
+          hijos: [
+            makeNode('resultado', 'Demanda Baja', { probabilidad: 0.3, valor: 120000 }),
+            makeNode('decision', 'Demanda Alta: ¿qué hacer?', {
+              probabilidad: 0.7,
+              hijos: [
+                makeNode('resultado', 'No hacer nada', { valor: 120000 }),
+                makeNode('resultado', 'Subcontratar', { valor: 140000 }),
+                makeNode('resultado', 'Comprar 2ª línea', { valor: 130000 })
+              ]
+            })
+          ]
+        })
+      ]
+    });
+    selectedId = root.id;
+  }
+
+  function casoVolumen() {
+    nodeIdCounter = 1;
+    root = makeNode('decision', '¿Cuánto producir?', {
+      hijos: [
+        makeNode('azar', 'Producir 1.000 unidades', {
+          hijos: [
+            makeNode('resultado', 'Demanda baja', { probabilidad: 0.30, valor: 20000 }),
+            makeNode('resultado', 'Demanda media', { probabilidad: 0.45, valor: 30000 }),
+            makeNode('resultado', 'Demanda alta', { probabilidad: 0.25, valor: 30000 })
+          ]
+        }),
+        makeNode('azar', 'Producir 2.000 unidades', {
+          hijos: [
+            makeNode('resultado', 'Demanda baja', { probabilidad: 0.30, valor: 10000 }),
+            makeNode('resultado', 'Demanda media', { probabilidad: 0.45, valor: 45000 }),
+            makeNode('resultado', 'Demanda alta', { probabilidad: 0.25, valor: 60000 })
+          ]
+        }),
+        makeNode('azar', 'Producir 3.000 unidades', {
+          hijos: [
+            makeNode('resultado', 'Demanda baja', { probabilidad: 0.30, valor: -5000 }),
+            makeNode('resultado', 'Demanda media', { probabilidad: 0.45, valor: 30000 }),
+            makeNode('resultado', 'Demanda alta', { probabilidad: 0.25, valor: 80000 })
+          ]
+        })
+      ]
+    });
+    selectedId = root.id;
+  }
+
+  function casoIluminador() {
+    nodeIdCounter = 1;
+    root = makeNode('decision', '¿Qué tamaño de planta construir?', {
+      hijos: [
+        makeNode('azar', 'Planta pequeña', {
+          hijos: [
+            makeNode('resultado', 'Demanda baja', { probabilidad: 0.25, valor: 36000 }),
+            makeNode('resultado', 'Demanda promedio', { probabilidad: 0.40, valor: 150000 }),
+            makeNode('decision', 'Demanda alta: ¿ampliar?', {
+              probabilidad: 0.35,
+              hijos: [
+                makeNode('resultado', 'Mantener pequeña', { valor: 150000 }),
+                makeNode('resultado', 'Ampliar a mediana', { valor: 120000 }),
+                makeNode('resultado', 'Ampliar a grande', { valor: 250000 })
+              ]
+            })
+          ]
+        }),
+        makeNode('azar', 'Planta mediana', {
+          hijos: [
+            makeNode('resultado', 'Demanda baja', { probabilidad: 0.25, valor: -50000 }),
+            makeNode('resultado', 'Demanda promedio', { probabilidad: 0.40, valor: 280000 }),
+            makeNode('decision', 'Demanda alta: ¿ampliar?', {
+              probabilidad: 0.35,
+              hijos: [
+                makeNode('resultado', 'Mantener mediana', { valor: 300000 }),
+                makeNode('resultado', 'Ampliar a grande', { valor: 290000 })
+              ]
+            })
+          ]
+        }),
+        makeNode('azar', 'Planta grande', {
+          hijos: [
+            makeNode('resultado', 'Demanda baja', { probabilidad: 0.25, valor: -120000 }),
+            makeNode('resultado', 'Demanda promedio', { probabilidad: 0.40, valor: 250000 }),
+            makeNode('resultado', 'Demanda alta', { probabilidad: 0.35, valor: 440000 })
+          ]
+        })
+      ]
+    });
+    selectedId = root.id;
+  }
+
+  function findNode(n, id) {
+    if (n.id === id) return n;
+    for (var i = 0; i < n.hijos.length; i++) {
+      var r = findNode(n.hijos[i], id);
+      if (r) return r;
+    }
+    return null;
+  }
+  function findParent(n, id) {
+    for (var i = 0; i < n.hijos.length; i++) {
+      if (n.hijos[i].id === id) return n;
+      var r = findParent(n.hijos[i], id);
+      if (r) return r;
+    }
+    return null;
+  }
+
+  function calcular(n) {
+    if (n.tipo === 'resultado' || n.hijos.length === 0) {
+      n._valor = Number(n.valor) || 0;
+      return n._valor;
+    }
+    if (n.tipo === 'azar') {
+      var sumaProb = 0, total = 0;
+      n.hijos.forEach(function (h) {
+        var p = Number(h.probabilidad) || 0;
+        sumaProb += p;
+        var v = calcular(h);
+        h._contribucion = p * v;
+        total += h._contribucion;
+      });
+      n._probOk = Math.abs(sumaProb - 1) < 0.011;
+      n._sumaProb = sumaProb;
+      n._valor = total;
+      return total;
+    }
+    // decision
+    var best = -Infinity, bestHijo = null;
+    n.hijos.forEach(function (h) {
+      var v = calcular(h) - (Number(h.costo) || 0);
+      h._contribucion = v;
+      if (v > best) { best = v; bestHijo = h; }
+    });
+    n.hijos.forEach(function (h) { h._optima = (h === bestHijo); });
+    n._valor = n.hijos.length ? best : (Number(n.valor) || 0);
+    return n._valor;
+  }
+
+  var COL_W = 320, ROW_H = 120, MARGIN_X = 90, MARGIN_Y = 70;
+  var leafCounter, letraCounter, numeroCounter;
+
+  function posicionar(n, depth) {
+    n._x = MARGIN_X + depth * COL_W;
+    if (n.tipo === 'decision' || n.tipo === 'azar') n._letra = String.fromCharCode(65 + (letraCounter++));
+    if (n.hijos.length === 0) {
+      if (n.tipo === 'resultado') n._numero = ++numeroCounter;
+      n._y = MARGIN_Y + leafCounter * ROW_H;
+      leafCounter++;
+    } else {
+      n.hijos.forEach(function (h) { posicionar(h, depth + 1); });
+      var ys = n.hijos.map(function (h) { return h._y; });
+      n._y = (Math.min.apply(null, ys) + Math.max.apply(null, ys)) / 2;
+    }
+  }
+
+  function layout() {
+    leafCounter = 0; letraCounter = 0; numeroCounter = 0;
+    posicionar(root, 0);
+  }
+
+  function fmt(n) {
+    if (n === null || n === undefined || isNaN(n)) return '—';
+    return new Intl.NumberFormat('es-CO', { maximumFractionDigits: 0 }).format(Math.round(n));
+  }
+  function fmtPct(p) { return Math.round((Number(p) || 0) * 100) + '%'; }
+  function esc(s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
+
+  function recorrerMaxXY(n, acc) {
+    acc.x = Math.max(acc.x, n._x); acc.y = Math.max(acc.y, n._y);
+    n.hijos.forEach(function (h) { recorrerMaxXY(h, acc); });
+    return acc;
+  }
+
+  function svgArbol() {
+    var svg = document.getElementById('tree-svg');
+    var acc = recorrerMaxXY(root, { x: 0, y: 0 });
+    var W = acc.x + COL_W + 260, H = acc.y + MARGIN_Y + 60;
+    svg.setAttribute('width', W);
+    svg.setAttribute('height', H);
+    svg.setAttribute('viewBox', '0 0 ' + W + ' ' + H);
+    svg.style.transform = 'scale(' + zoom + ')';
+    svg.style.transformOrigin = '0 0';
+
+    var edges = [], nodes = [];
+
+    var RADIO = { decision: 26, azar: 28, resultado: 22 };
+
+    function dibujarEdge(padre, hijo, idx, total) {
+      var a = { x: padre._x, y: padre._y }, b = { x: hijo._x, y: hijo._y };
+      var cls = 'edge';
+      if (padre.tipo === 'decision') cls += hijo._optima ? ' optimal' : ' pruned';
+      edges.push('<line class="' + cls + '" x1="' + a.x + '" y1="' + a.y + '" x2="' + b.x + '" y2="' + b.y + '"/>');
+
+      var ang = Math.atan2(b.y - a.y, b.x - a.x);
+      var ux = Math.cos(ang), uy = Math.sin(ang);
+      var rA = RADIO[padre.tipo], rB = RADIO[hijo.tipo];
+      var up = hijo._y < padre._y;
+      var carril = (idx - (total - 1) / 2) * 30;
+
+      if (padre.tipo === 'decision' && !hijo._optima) {
+        var mid = { x: a.x + ux * (rA + 42), y: a.y + uy * (rA + 42) };
+        var dx = Math.cos(ang + Math.PI / 2) * 8, dy = Math.sin(ang + Math.PI / 2) * 8;
+        var dx2 = ux * 5, dy2 = uy * 5;
+        [-6, 6].forEach(function (off) {
+          var cx = mid.x + ux * off, cy = mid.y + uy * off;
+          edges.push('<line class="prune-mark" x1="' + (cx - dx - dx2) + '" y1="' + (cy - dy - dy2) + '" x2="' + (cx + dx + dx2) + '" y2="' + (cy + dy + dy2) + '"/>');
+        });
+      }
+
+      var startPt = { x: a.x + ux * (rA + 10), y: a.y + uy * (rA + 10) };
+      var startPt2 = { x: a.x + ux * (rA + 100), y: a.y + uy * (rA + 100) };
+      var endPt = { x: b.x - ux * (rB + 10), y: b.y - uy * (rB + 10) };
+
+      if (padre.tipo === 'azar') {
+        var offV = up ? -8 : 20;
+        edges.push('<text class="lbl-value plain num" style="text-anchor:start" x="' + startPt.x + '" y="' + (a.y + carril - 4) + '">' + fmt(hijo._contribucion) + '</text>');
+        edges.push('<text class="lbl-prob" style="text-anchor:start" x="' + startPt2.x + '" y="' + (a.y + carril - 4) + '">' + fmtPct(hijo.probabilidad) + '</text>');
+        edges.push('<text class="lbl-etiqueta" style="text-anchor:end" x="' + endPt.x + '" y="' + (endPt.y + offV) + '">' + esc(hijo.etiqueta) + '</text>');
+      } else if (padre.tipo === 'decision') {
+        var offEtq = up ? -24 : 32, offVal = up ? -6 : 16;
+        var valCls = hijo._optima ? 'optimal' : 'pruned';
+        edges.push('<text class="lbl-etiqueta" style="text-anchor:end" x="' + endPt.x + '" y="' + (endPt.y + offEtq) + '">' + esc(hijo.etiqueta) + (hijo.costo ? (' (costo ' + fmt(hijo.costo) + ')') : '') + '</text>');
+        edges.push('<text class="lbl-value ' + valCls + ' num" style="text-anchor:end" x="' + endPt.x + '" y="' + (endPt.y + offVal) + '">' + fmt(hijo._contribucion) + '</text>');
+      }
+    }
+
+    function dibujarNodo(n) {
+      if (n.tipo === 'decision') {
+        nodes.push('<rect class="shape-decision" x="' + (n._x - 18) + '" y="' + (n._y - 18) + '" width="36" height="36" rx="6"/>');
+        nodes.push('<text class="node-letter" x="' + n._x + '" y="' + (n._y + 1) + '">' + n._letra + '</text>');
+      } else if (n.tipo === 'azar') {
+        nodes.push('<circle class="shape-azar" cx="' + n._x + '" cy="' + n._y + '" r="19"/>');
+        nodes.push('<text class="node-letter" x="' + n._x + '" y="' + (n._y + 1) + '">' + n._letra + '</text>');
+      } else {
+        var x = n._x, y = n._y;
+        nodes.push('<path class="shape-resultado" d="M' + x + ',' + (y - 12) + ' L' + (x + 20) + ',' + y + ' L' + x + ',' + (y + 12) + ' Z"/>');
+        nodes.push('<text class="node-letter" x="' + (x + 6) + '" y="' + (y + 1) + '" style="font-size:9px">' + n._numero + '</text>');
+        nodes.push('<text class="lbl-terminal num" x="' + (x + 30) + '" y="' + (y + 4) + '">' + fmt(n._valor) + '</text>');
+      }
+      if (n.id === selectedId) {
+        var r = n.tipo === 'resultado' ? 16 : 26;
+        nodes.push('<circle cx="' + n._x + '" cy="' + n._y + '" r="' + r + '" fill="none" stroke="var(--focus-ring)" stroke-width="2" stroke-dasharray="3 3"/>');
+      }
+    }
+
+    function recorrer(n) {
+      n.hijos.forEach(function (h, idx) { dibujarEdge(n, h, idx, n.hijos.length); recorrer(h); });
+      dibujarNodo(n);
+    }
+    recorrer(root);
+
+    var promptLabel = '<text class="lbl-root-prompt" x="6" y="' + (root._y - 34) + '">' + esc(root.etiqueta) + '</text>';
+
+    svg.innerHTML = edges.join('') + promptLabel + nodes.join('');
+
+    svg.onclick = function (ev) {
+      var rect = svg.getBoundingClientRect();
+      var x = (ev.clientX - rect.left) / zoom, y = (ev.clientY - rect.top) / zoom;
+      var hit = hitTest(root, x, y);
+      if (hit) { selectedId = hit.id; renderAll(); }
+    };
+  }
+
+  function hitTest(n, x, y) {
+    var r = n.tipo === 'resultado' ? 22 : 24;
+    if (Math.abs(x - n._x) < r + 14 && Math.abs(y - n._y) < r) return n;
+    for (var i = 0; i < n.hijos.length; i++) {
+      var h = hitTest(n.hijos[i], x, y);
+      if (h) return h;
+    }
+    return null;
+  }
+
+  function renderSummary() {
+    document.getElementById('vme-total').textContent = fmt(root._valor);
+    var list = document.getElementById('rec-list');
+    var rows = [];
+    function walk(n) {
+      if (n.tipo === 'decision' && n.hijos.length) {
+        var mejor = n.hijos.filter(function (h) { return h._optima; })[0];
+        if (mejor) {
+          rows.push('<li class="rec-item"><span class="who">' + n._letra + '. ' + esc(n.etiqueta) + '</span><br>→ ' + esc(mejor.etiqueta) + ' <span class="val num">' + fmt(mejor._contribucion) + '</span></li>');
+        }
+      }
+      n.hijos.forEach(walk);
+    }
+    walk(root);
+    list.innerHTML = rows.join('');
+
+    var warnings = [];
+    (function checkProb(n) {
+      if (n.tipo === 'azar' && !n._probOk) {
+        warnings.push('<div class="warn-item">Nodo ' + n._letra + ' (' + esc(n.etiqueta) + '): las probabilidades suman ' + Math.round(n._sumaProb * 100) + '%, deberían sumar 100%.</div>');
+      }
+      n.hijos.forEach(checkProb);
+    })(root);
+    list.innerHTML += warnings.join('');
+  }
+
+  function renderOutline() {
+    function li(n) {
+      var cls = 'outline-row' + (n.id === selectedId ? ' selected' : '');
+      var val = n.hijos.length || n.tipo === 'resultado' ? fmt(n._valor) : '';
+      var html = '<li><div class="' + cls + '" data-id="' + n.id + '"><span class="tag ' + n.tipo + '"></span>' +
+        '<span class="outline-label">' + esc(n.etiqueta) + '</span>' +
+        '<span class="outline-val num">' + val + '</span></div>';
+      if (n.hijos.length) {
+        html += '<ul>' + n.hijos.map(li).join('') + '</ul>';
+      }
+      html += '</li>';
+      return html;
+    }
+    document.getElementById('outline').innerHTML = li(root);
+    document.querySelectorAll('.outline-row').forEach(function (el) {
+      el.addEventListener('click', function () { selectedId = Number(el.getAttribute('data-id')); renderAll(); });
+    });
+  }
+
+  function renderEditor() {
+    var n = findNode(root, selectedId);
+    var box = document.getElementById('editor-body');
+    if (!n) { box.innerHTML = '<p class="empty-hint">Selecciona un nodo.</p>'; return; }
+    var padre = findParent(root, n.id);
+    var html = '';
+    html += '<div class="field"><label>Etiqueta</label><input id="f-etiqueta" value="' + esc(n.etiqueta).replace(/"/g, '&quot;') + '"></div>';
+    html += '<div class="field"><label>Tipo de nodo</label><select id="f-tipo">' +
+      ['decision', 'azar', 'resultado'].map(function (t) { return '<option value="' + t + '"' + (t === n.tipo ? ' selected' : '') + '>' + (t === 'decision' ? 'Decisión' : t === 'azar' ? 'Azar' : 'Resultado') + '</option>'; }).join('') +
+      '</select></div>';
+
+    if (padre && padre.tipo === 'azar') {
+      html += '<div class="field"><label>Probabilidad (%)</label><input id="f-prob" type="number" min="0" max="100" step="1" value="' + Math.round((Number(n.probabilidad) || 0) * 100) + '"></div>';
+    }
+    if (padre && padre.tipo === 'decision') {
+      html += '<div class="field"><label>Costo / inversión de esta rama (opcional)</label><input id="f-costo" type="number" step="1" value="' + (Number(n.costo) || 0) + '"></div>';
+    }
+    if (n.tipo === 'resultado') {
+      html += '<div class="field"><label>Valor terminal</label><input id="f-valor" type="number" step="1" value="' + (Number(n.valor) || 0) + '"></div>';
+    } else {
+      html += '<div class="field"><label>Valor calculado (VME)</label><input class="num" value="' + fmt(n._valor) + '" disabled></div>';
+    }
+
+    if (n.tipo !== 'resultado') {
+      html += '<div class="field"><label>' + (n.hijos.length ? 'Agregar otra rama' : 'Agrega la primera rama') + '</label><div class="editor-actions">' +
+        '<button class="btn btn-primary" data-add-tipo="decision">+ Decisión</button>' +
+        '<button class="btn btn-primary" data-add-tipo="azar">+ Azar</button>' +
+        '<button class="btn btn-primary" data-add-tipo="resultado">+ Resultado</button>' +
+        '</div></div>';
+    }
+    if (n.id !== root.id) {
+      html += '<div class="editor-actions">' +
+        '<button class="btn" id="btn-duplicar-nodo">⧉ Duplicar esta rama</button>' +
+        '<button class="btn btn-danger" id="btn-del-nodo">Eliminar esta rama</button></div>';
+    }
+
+    box.innerHTML = html;
+
+    var fEtq = document.getElementById('f-etiqueta');
+    fEtq.addEventListener('focus', guardarHistorial, { once: true });
+    fEtq.addEventListener('input', function (e) { n.etiqueta = e.target.value; layout(); svgArbol(); renderOutline(); renderSummary(); });
+    document.getElementById('f-tipo').addEventListener('change', function (e) {
+      guardarHistorial();
+      var nuevo = e.target.value;
+      if (nuevo !== n.tipo) n.hijos = [];
+      n.tipo = nuevo;
+      calcular(root); layout(); renderAll();
+    });
+    var fp = document.getElementById('f-prob');
+    if (fp) {
+      fp.addEventListener('focus', guardarHistorial, { once: true });
+      fp.addEventListener('input', function (e) { n.probabilidad = (Number(e.target.value) || 0) / 100; refrescarSinEditor(); });
+    }
+    var fc = document.getElementById('f-costo');
+    if (fc) {
+      fc.addEventListener('focus', guardarHistorial, { once: true });
+      fc.addEventListener('input', function (e) { n.costo = Number(e.target.value) || 0; refrescarSinEditor(); });
+    }
+    var fv = document.getElementById('f-valor');
+    if (fv) {
+      fv.addEventListener('focus', guardarHistorial, { once: true });
+      fv.addEventListener('input', function (e) { n.valor = Number(e.target.value) || 0; refrescarSinEditor(); });
+    }
+
+    box.querySelectorAll('[data-add-tipo]').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        guardarHistorial();
+        var tipoNuevo = btn.getAttribute('data-add-tipo');
+        var overrides = {};
+        if (n.tipo === 'azar') overrides.probabilidad = 0;
+        if (n.tipo === 'decision') overrides.costo = 0;
+        var etiquetaDefault = tipoNuevo === 'decision' ? 'Nueva decisión' : tipoNuevo === 'azar' ? 'Nuevo evento de azar' : 'Nuevo resultado';
+        var nuevo = makeNode(tipoNuevo, etiquetaDefault, overrides);
+        n.hijos.push(nuevo);
+        selectedId = nuevo.id;
+        calcular(root); layout(); renderAll();
+      });
+    });
+    var dupBtn = document.getElementById('btn-duplicar-nodo');
+    if (dupBtn) dupBtn.addEventListener('click', function () {
+      guardarHistorial();
+      var p = findParent(root, n.id);
+      if (!p) return;
+      var copia = clonarConNuevosIds(n);
+      copia.etiqueta = copia.etiqueta + ' (copia)';
+      var idx = p.hijos.indexOf(n);
+      p.hijos.splice(idx + 1, 0, copia);
+      selectedId = copia.id;
+      calcular(root); layout(); renderAll();
+    });
+    var delBtn = document.getElementById('btn-del-nodo');
+    if (delBtn) delBtn.addEventListener('click', function () {
+      guardarHistorial();
+      var p = findParent(root, n.id);
+      if (!p) return;
+      p.hijos = p.hijos.filter(function (h) { return h.id !== n.id; });
+      selectedId = p.id;
+      calcular(root); layout(); renderAll();
+    });
+  }
+
+  function renderAll() {
+    calcular(root);
+    layout();
+    svgArbol();
+    renderOutline();
+    renderEditor();
+    renderSummary();
+  }
+
+  function refrescarSinEditor() {
+    calcular(root);
+    layout();
+    svgArbol();
+    renderOutline();
+    renderSummary();
+  }
+
+  function setZoom(z) {
+    zoom = Math.max(0.4, Math.min(2, z));
+    document.getElementById('zoom-label').textContent = Math.round(zoom * 100) + '%';
+    svgArbol();
+  }
+
+  function exportarPNG() {
+    var svgOrig = document.getElementById('tree-svg');
+    var w = parseFloat(svgOrig.getAttribute('width'));
+    var h = parseFloat(svgOrig.getAttribute('height'));
+    var svgClone = svgOrig.cloneNode(true);
+    svgClone.removeAttribute('style');
+    svgClone.querySelectorAll('circle[stroke-dasharray="3 3"]').forEach(function (el) { el.remove(); });
+
+    var cs = getComputedStyle(document.documentElement);
+    function v(nombre) { return cs.getPropertyValue(nombre).trim(); }
+
+    var estilo = document.createElementNS('http://www.w3.org/2000/svg', 'style');
+    estilo.textContent =
+      '.edge{stroke:' + v('--border') + ';stroke-width:2;fill:none}' +
+      '.edge.optimal{stroke:' + v('--accent-optimal') + ';stroke-width:3}' +
+      '.edge.pruned{stroke:' + v('--accent-pruned') + ';stroke-width:2;opacity:.5;stroke-dasharray:5 4}' +
+      '.prune-mark{stroke:' + v('--accent-pruned') + ';stroke-width:2.5}' +
+      '.shape-decision{fill:' + v('--accent-decision') + ';stroke:' + v('--accent-decision') + '}' +
+      '.shape-azar{fill:' + v('--accent-chance') + ';stroke:' + v('--accent-chance') + '}' +
+      '.shape-resultado{fill:' + v('--text-muted') + ';stroke:' + v('--text-muted') + '}' +
+      '.node-letter{fill:#fff;font-size:12px;font-weight:700;text-anchor:middle;dominant-baseline:central;font-family:"IBM Plex Mono",monospace}' +
+      '.lbl-etiqueta{fill:' + v('--text') + ';font-size:12.5px;font-weight:600;text-anchor:middle;font-family:"IBM Plex Sans",sans-serif}' +
+      '.lbl-prob{fill:' + v('--accent-chance') + ';font-size:12px;font-weight:600;text-anchor:middle;font-family:"IBM Plex Mono",monospace}' +
+      '.lbl-value{font-size:12.5px;font-weight:600;text-anchor:middle;font-family:"IBM Plex Mono",monospace}' +
+      '.lbl-value.optimal{fill:' + v('--accent-optimal') + '}' +
+      '.lbl-value.pruned{fill:' + v('--accent-pruned') + ';opacity:.65}' +
+      '.lbl-value.plain{fill:' + v('--text') + '}' +
+      '.lbl-terminal{font-size:13px;font-weight:700;fill:' + v('--text') + ';font-family:"IBM Plex Mono",monospace}' +
+      '.lbl-root-prompt{fill:' + v('--text') + ';font-size:13px;font-weight:600;text-anchor:start;font-family:"IBM Plex Sans",sans-serif}';
+    svgClone.insertBefore(estilo, svgClone.firstChild);
+
+    var fondo = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+    fondo.setAttribute('x', '0'); fondo.setAttribute('y', '0');
+    fondo.setAttribute('width', String(w)); fondo.setAttribute('height', String(h));
+    fondo.setAttribute('fill', v('--bg'));
+    svgClone.insertBefore(fondo, svgClone.firstChild);
+
+    var xml = new XMLSerializer().serializeToString(svgClone);
+    var svgBlob = new Blob([xml], { type: 'image/svg+xml;charset=utf-8' });
+    var url = URL.createObjectURL(svgBlob);
+    var img = new Image();
+    img.onload = function () {
+      var escala = 2;
+      var canvas = document.createElement('canvas');
+      canvas.width = w * escala; canvas.height = h * escala;
+      var ctx = canvas.getContext('2d');
+      ctx.scale(escala, escala);
+      ctx.drawImage(img, 0, 0, w, h);
+      URL.revokeObjectURL(url);
+      canvas.toBlob(function (blob) {
+        var a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = 'arbol-decision.png';
+        document.body.appendChild(a); a.click(); document.body.removeChild(a);
+      }, 'image/png');
+    };
+    img.onerror = function () { URL.revokeObjectURL(url); alert('No se pudo generar la imagen.'); };
+    img.src = url;
+  }
+
+  document.getElementById('btn-descargar-img').addEventListener('click', exportarPNG);
+  document.getElementById('btn-deshacer').addEventListener('click', deshacer);
+  document.getElementById('btn-nuevo').addEventListener('click', function () { guardarHistorial(); blankTree(); renderAll(); });
+  document.getElementById('btn-caso1').addEventListener('click', function () { guardarHistorial(); casoUno(); renderAll(); });
+  document.getElementById('btn-caso2').addEventListener('click', function () { guardarHistorial(); casoDos(); renderAll(); });
+  document.getElementById('btn-volumen').addEventListener('click', function () { guardarHistorial(); casoVolumen(); renderAll(); });
+  document.getElementById('btn-iluminador').addEventListener('click', function () { guardarHistorial(); casoIluminador(); renderAll(); });
+  document.getElementById('btn-zoom-in').addEventListener('click', function () { setZoom(zoom + 0.1); });
+  document.getElementById('btn-zoom-out').addEventListener('click', function () { setZoom(zoom - 0.1); });
+  document.getElementById('btn-zoom-reset').addEventListener('click', function () { setZoom(1); });
+
+  document.getElementById('btn-guardar').addEventListener('click', function () {
+    var blob = new Blob([JSON.stringify(root, limpiarComputados, 2)], { type: 'application/json' });
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement('a');
+    a.href = url; a.download = 'arbol-decision.json';
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  });
+  document.getElementById('file-cargar').addEventListener('change', function (e) {
+    var file = e.target.files[0];
+    if (!file) return;
+    var reader = new FileReader();
+    reader.onload = function () {
+      try {
+        var data = JSON.parse(reader.result);
+        var maxId = 0;
+        (function walk(n) { maxId = Math.max(maxId, n.id); n.hijos = n.hijos || []; n.hijos.forEach(walk); })(data);
+        guardarHistorial();
+        root = data; nodeIdCounter = maxId + 1; selectedId = root.id;
+        renderAll();
+      } catch (err) { alert('No se pudo leer el archivo: ' + err.message); }
+    };
+    reader.readAsText(file);
+    e.target.value = '';
+  });
+
+  casoUno();
+  renderAll();
+})();
+</script>
+</body>
+</html>

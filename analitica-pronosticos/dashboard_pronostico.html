@@ -1,0 +1,581 @@
+<title>Pronóstico Caso Real</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400..700;1,9..144,400..600&family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.5.1/chart.umd.min.js"></script>
+<style>
+  :root{
+    color-scheme: light;
+    --paper:#EEF2EF;
+    --panel:#FFFFFF;
+    --panel-border:rgba(15,32,28,0.10);
+    --ink:#101913;
+    --ink-2:#48564E;
+    --ink-muted:#7C8A82;
+    --accent:#0F6B62;
+    --accent-soft:#E1EFEB;
+    --grid-line:#DEE4E0;
+    --data-real:#2A78D6;
+    --data-model:#EB6834;
+    --data-ci:rgba(235,104,52,0.16);
+    --status-good:#0B8A0B;
+    --status-good-soft:#E1F3DE;
+    --shadow: 0 1px 2px rgba(16,25,19,0.04), 0 8px 24px -12px rgba(16,25,19,0.12);
+  }
+  @media (prefers-color-scheme: dark){
+    :root:not([data-theme="light"]){
+      color-scheme: dark;
+      --paper:#0D1512;
+      --panel:#161F1A;
+      --panel-border:rgba(255,255,255,0.09);
+      --ink:#EEF3F0;
+      --ink-2:#B9C4BE;
+      --ink-muted:#7E8B85;
+      --accent:#3FBFA8;
+      --accent-soft:rgba(63,191,168,0.14);
+      --grid-line:#293530;
+      --data-real:#4C93E8;
+      --data-model:#E37A4B;
+      --data-ci:rgba(227,122,75,0.18);
+      --status-good:#3FC23F;
+      --status-good-soft:rgba(63,194,63,0.14);
+      --shadow: 0 1px 2px rgba(0,0,0,0.3), 0 8px 24px -12px rgba(0,0,0,0.5);
+    }
+  }
+  :root[data-theme="dark"]{
+    color-scheme: dark;
+    --paper:#0D1512;
+    --panel:#161F1A;
+    --panel-border:rgba(255,255,255,0.09);
+    --ink:#EEF3F0;
+    --ink-2:#B9C4BE;
+    --ink-muted:#7E8B85;
+    --accent:#3FBFA8;
+    --accent-soft:rgba(63,191,168,0.14);
+    --grid-line:#293530;
+    --data-real:#4C93E8;
+    --data-model:#E37A4B;
+    --data-ci:rgba(227,122,75,0.18);
+    --status-good:#3FC23F;
+    --status-good-soft:rgba(63,194,63,0.14);
+    --shadow: 0 1px 2px rgba(0,0,0,0.3), 0 8px 24px -12px rgba(0,0,0,0.5);
+  }
+
+  *{box-sizing:border-box;}
+  body{
+    margin:0; background:var(--paper); color:var(--ink);
+    font-family:"IBM Plex Sans", system-ui, sans-serif;
+    font-size:15.5px; line-height:1.65;
+  }
+  .wrap{max-width:1180px; margin:0 auto; padding:0 28px 96px;}
+  a{color:var(--accent);}
+
+  .eyebrow{
+    font-family:"IBM Plex Mono", monospace; font-size:11.5px; font-weight:600;
+    letter-spacing:.09em; text-transform:uppercase; color:var(--accent);
+  }
+  h1,h2,h3{font-family:"Fraunces", Georgia, serif; text-wrap:balance; margin:0; color:var(--ink);}
+  h1{font-size:clamp(32px,4.4vw,50px); font-weight:600; font-optical-sizing:auto; line-height:1.08; margin-top:10px;}
+  h1 em{color:var(--accent); font-style:italic;}
+  h2{font-size:26px; font-weight:600; line-height:1.2;}
+  h2 .num{color:var(--accent); font-style:italic; margin-right:.05em;}
+  h3{font-size:16px; font-weight:600; font-style:normal;}
+  p{margin:0 0 0; color:var(--ink-2); max-width:66ch;}
+  .lede{font-size:17px; max-width:60ch; margin-top:14px;}
+  code, .mono{font-family:"IBM Plex Mono", monospace;}
+  .tabular{font-variant-numeric: tabular-nums;}
+
+  /* ---- masthead ---- */
+  .masthead{padding:60px 0 36px; border-bottom:1px solid var(--panel-border);}
+  .stat-strip{
+    display:grid; grid-template-columns:repeat(auto-fit,minmax(200px,1fr));
+    gap:16px; margin-top:36px;
+  }
+  .stat-tile{
+    background:var(--panel); border:1px solid var(--panel-border); border-radius:10px;
+    padding:16px 18px; box-shadow:var(--shadow);
+  }
+  .stat-tile .stat-label{font-family:"IBM Plex Mono",monospace; font-size:10.5px; letter-spacing:.08em;
+    text-transform:uppercase; color:var(--ink-muted); font-weight:600;}
+  .stat-tile .stat-value{font-family:"Fraunces",serif; font-size:28px; font-weight:600; margin-top:6px; color:var(--ink);}
+  .stat-tile .stat-sub{font-size:12.5px; color:var(--ink-2); margin-top:2px;}
+
+  .masthead-top{display:flex; align-items:center; justify-content:space-between; gap:16px; flex-wrap:wrap;}
+  .theme-switch{display:inline-flex; background:var(--panel); border:1px solid var(--panel-border);
+    border-radius:999px; padding:3px; gap:2px;}
+  .theme-switch button{
+    font-family:"IBM Plex Mono",monospace; font-size:11px; letter-spacing:.03em; color:var(--ink-muted);
+    background:transparent; border:none; border-radius:999px; padding:6px 12px; cursor:pointer;
+  }
+  .theme-switch button:hover{color:var(--ink);}
+  .theme-switch button.active{background:var(--accent); color:var(--panel);}
+
+  .quicknav{display:flex; flex-wrap:wrap; gap:8px; margin-top:28px;}
+  .quicknav a{
+    font-family:"IBM Plex Mono",monospace; font-size:12px; text-decoration:none; color:var(--ink-2);
+    background:var(--panel); border:1px solid var(--panel-border); border-radius:999px; padding:6px 13px;
+  }
+  .quicknav a:hover{color:var(--accent); border-color:var(--accent);}
+
+  section{padding:56px 0; border-bottom:1px solid var(--panel-border);}
+  section:last-of-type{border-bottom:none;}
+  .section-head{max-width:74ch; margin-bottom:28px;}
+  .section-head p{margin-top:10px;}
+
+  .chart-card{
+    background:var(--panel); border:1px solid var(--panel-border); border-radius:12px;
+    padding:20px 22px 16px; box-shadow:var(--shadow);
+  }
+  .chart-box{position:relative; height:320px;}
+  .chart-box.tall{height:340px;}
+
+  .tile-grid{display:grid; grid-template-columns:repeat(auto-fit,minmax(340px,1fr)); gap:20px; margin-top:8px;}
+  .tile-grid.one-col{grid-template-columns:minmax(340px,680px);}
+  .tile-grid.one-col .chart-box{height:300px;}
+  .tile{
+    background:var(--panel); border:1px solid var(--panel-border); border-radius:12px;
+    padding:18px 18px 12px; box-shadow:var(--shadow); display:flex; flex-direction:column;
+  }
+  .tile-head{display:flex; align-items:baseline; justify-content:space-between; gap:10px; margin-bottom:2px;}
+  .tile-formula{font-size:12px; color:var(--ink-muted); margin-bottom:10px;}
+  .tile .chart-box{height:230px;}
+  .chip{
+    display:inline-flex; align-items:center; gap:5px; font-family:"IBM Plex Mono",monospace;
+    font-size:10.5px; font-weight:600; letter-spacing:.05em; text-transform:uppercase;
+    padding:3px 9px; border-radius:999px; background:var(--status-good-soft); color:var(--status-good);
+    white-space:nowrap;
+  }
+  .chip::before{content:"●"; font-size:8px;}
+
+  .note-band{
+    background:var(--accent-soft); border:1px solid var(--panel-border); border-radius:10px;
+    padding:14px 18px; font-size:13.5px; color:var(--ink-2); margin-bottom:24px;
+  }
+  .note-band b{color:var(--ink);}
+
+  table{width:100%; border-collapse:collapse; font-size:14px;}
+  th,td{padding:11px 14px; text-align:right; border-bottom:1px solid var(--panel-border);}
+  th:first-child,td:first-child{text-align:left;}
+  th{
+    font-family:"IBM Plex Mono",monospace; font-size:10.5px; letter-spacing:.06em; text-transform:uppercase;
+    color:var(--ink-muted); font-weight:600;
+  }
+  tbody tr.best{background:var(--status-good-soft);}
+  td.model-name{font-weight:500;}
+  .table-wrap{overflow-x:auto; background:var(--panel); border:1px solid var(--panel-border);
+    border-radius:12px; box-shadow:var(--shadow);}
+  .table-wrap table{min-width:640px;}
+  #tableMetrics{min-width:760px;}
+
+  .compare-grid{display:grid; grid-template-columns:1.1fr 1fr; gap:20px; align-items:start;}
+  @media (max-width:860px){.compare-grid{grid-template-columns:1fr;}}
+
+  footer{padding:36px 0 0; color:var(--ink-muted); font-size:12.5px;}
+</style>
+
+<div class="wrap">
+
+  <header class="masthead">
+    <div class="masthead-top">
+      <div class="eyebrow">Caso real · Gerencia de Operaciones</div>
+      <div class="theme-switch" id="themeSwitch" role="group" aria-label="Tema de la página">
+        <button type="button" data-theme-choice="system">Sistema</button>
+        <button type="button" data-theme-choice="light">Claro</button>
+        <button type="button" data-theme-choice="dark">Oscuro</button>
+      </div>
+    </div>
+    <h1>Pronóstico de <em>demanda mensual</em></h1>
+    <p class="lede">Once modelos, cinco familias — informales, tendencia central, suavización,
+      regresión y ARIMA — ajustados sobre la misma serie histórica para pronosticar
+      <b style="color:var(--ink)">agosto, septiembre y octubre de 2026</b>.</p>
+
+    <div class="stat-strip">
+      <div class="stat-tile">
+        <div class="stat-label">Histórico</div>
+        <div class="stat-value tabular">48 meses</div>
+        <div class="stat-sub">ago 2022 – jul 2026</div>
+      </div>
+      <div class="stat-tile">
+        <div class="stat-label">Validación (rolling-origin)</div>
+        <div class="stat-value tabular">30 pronósticos</div>
+        <div class="stat-sub" id="holdoutRangeLabel">10 orígenes × h=1,2,3</div>
+      </div>
+      <div class="stat-tile">
+        <div class="stat-label">Horizonte a pronosticar</div>
+        <div class="stat-value tabular">3 meses</div>
+        <div class="stat-sub">ago – oct 2026</div>
+      </div>
+      <div class="stat-tile">
+        <div class="stat-label">Mejor ajuste (MAPE)</div>
+        <div class="stat-value" id="bestModelLabel">—</div>
+        <div class="stat-sub" id="bestModelMape">—</div>
+      </div>
+    </div>
+
+    <nav class="quicknav">
+      <a href="#serie">La serie</a>
+      <a href="#cat-1">1 · Simplistas</a>
+      <a href="#cat-2">2 · Tendencia central</a>
+      <a href="#cat-3">3 · Suavización</a>
+      <a href="#cat-4">4 · Regresión</a>
+      <a href="#cat-5">5 · ARIMA</a>
+      <a href="#comparacion">Comparación</a>
+      <a href="#pronostico">Pronóstico</a>
+    </nav>
+  </header>
+
+  <section id="serie">
+    <div class="section-head">
+      <div class="eyebrow">Punto de partida</div>
+      <h2>La serie histórica</h2>
+      <p>48 observaciones mensuales con estacionalidad anual marcada — mínimos en enero–febrero,
+        máximos hacia diciembre — sobre una tendencia de fondo levemente decreciente. Esta es la
+        señal que cada modelo, a su manera, intenta reproducir.</p>
+    </div>
+    <div class="chart-card"><div class="chart-box tall"><canvas id="chartOverview"></canvas></div></div>
+  </section>
+
+  <section id="cat-1">
+    <div class="section-head">
+      <div class="eyebrow">Familia 1 de 5</div>
+      <h2><span class="num">1</span>Modelos informales o simplistas</h2>
+      <p>La referencia mínima: sin ajuste de parámetros, solo repetir el último dato conocido o el
+        mismo mes del año anterior. Cualquier modelo más sofisticado debería, como mínimo, superarlos.</p>
+    </div>
+    <div class="tile-grid" id="grid-1"></div>
+  </section>
+
+  <section id="cat-2">
+    <div class="section-head">
+      <div class="eyebrow">Familia 2 de 5</div>
+      <h2><span class="num">2</span>Modelos de tendencia central</h2>
+      <p>Promedios: uno acumulado desde el inicio de la serie, dos móviles de ventana corta (3
+        meses) y larga (12 meses), y uno ponderado de 3 meses cuyos pesos se optimizaron
+        (minimizando error, sujeto a que sumen 1 — lo mismo que resolvería Solver en Excel).
+        A mayor ventana, más se suaviza el ruido, pero también se atrasa la reacción a la
+        estacionalidad.</p>
+    </div>
+    <div class="tile-grid" id="grid-2"></div>
+  </section>
+
+  <section id="cat-3">
+    <div class="section-head">
+      <div class="eyebrow">Familia 3 de 5</div>
+      <h2><span class="num">3</span>Modelos de suavización exponencial</h2>
+      <p>SES pondera el pasado con un solo parámetro (alpha); Holt añade una segunda ecuación
+        para la tendencia (beta); Holt-Winters añade una tercera para la estacionalidad (gamma).
+        Los tres se eligen por grilla, minimizando el error de pronóstico a 1-3 meses en un
+        período de calibración separado — no el ajuste dentro de la muestra.</p>
+    </div>
+    <div class="tile-grid" id="grid-3"></div>
+  </section>
+
+  <section id="cat-4">
+    <div class="section-head">
+      <div class="eyebrow">Familia 4 de 5</div>
+      <h2><span class="num">4</span>Modelo de regresión lineal</h2>
+      <p>Una sola ecuación con una variable de tendencia (t) y once variables dummy mensuales
+        (referencia = enero) que capturan la estacionalidad como un efecto fijo por mes, en vez de
+        recursivo como en suavización.</p>
+    </div>
+    <div class="tile-grid one-col" id="grid-4"></div>
+  </section>
+
+  <section id="cat-5">
+    <div class="section-head">
+      <div class="eyebrow">Familia 5 de 5</div>
+      <h2><span class="num">5</span>Modelo ARIMA</h2>
+      <p>Un SARIMA estacional (período 12), con el orden (p,d,q)(P,D,Q) elegido por menor AIC
+        sobre una grilla acotada de combinaciones. A diferencia de los anteriores, entrega también
+        un intervalo de confianza explícito para el pronóstico.</p>
+    </div>
+    <div class="tile-grid one-col" id="grid-5"></div>
+  </section>
+
+  <section id="comparacion">
+    <div class="section-head">
+      <div class="eyebrow">¿Cuál ajusta mejor?</div>
+      <h2>Comparación de modelos</h2>
+    </div>
+    <div class="note-band">
+      <b>Metodología de evaluación:</b> validación cruzada de origen móvil (<i>rolling-origin</i>,
+      Hyndman &amp; Athanasopoulos) — 10 orígenes mensuales consecutivos, cada uno pronosticando
+      solo 1, 2 y 3 meses adelante, el mismo horizonte que ago–oct 2026. Son 30 pares
+      pronóstico-real por modelo (no un único corte a 12 meses), lo que evita exigirle a cada
+      modelo un horizonte más largo del que en realidad necesita. Los parámetros de SES, Holt,
+      Holt-Winters y el orden de SARIMA se eligieron aparte, en 10 orígenes previos
+      (<span id="calibRangeLabel">—</span>), minimizando el error de pronóstico — nunca el ajuste
+      dentro de la muestra — para no filtrar información del período evaluado.
+    </div>
+    <div class="compare-grid">
+      <div class="chart-card"><div class="chart-box"><canvas id="chartMape"></canvas></div></div>
+      <div class="table-wrap">
+        <table id="tableMetrics">
+          <thead><tr><th>Modelo</th><th>MAE</th><th>RMSE</th><th>MAPE</th><th>WAPE</th><th>F-ACC</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <section id="pronostico">
+    <div class="section-head">
+      <div class="eyebrow">La respuesta</div>
+      <h2>Pronóstico agosto – octubre 2026</h2>
+      <p>Ordenado por precisión histórica (MAPE, de menor a mayor). Regresión Lineal y Holt-Winters
+        quedan como los dos mejores, muy cerca entre sí — ambos capturan tendencia y estacionalidad,
+        por caminos distintos.</p>
+    </div>
+    <div class="table-wrap">
+      <table id="tableForecast">
+        <thead><tr><th>Modelo</th><th id="thAug">—</th><th id="thSep">—</th><th id="thOct">—</th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </section>
+
+  <footer>
+    Serie: 48 observaciones mensuales, ago 2022 – jul 2026 · Modelos ajustados en Python
+    (statsmodels) · Evaluación por validación cruzada de origen móvil (10 orígenes × h=1,2,3) ·
+    MAPE = error porcentual absoluto medio.
+  </footer>
+</div>
+
+<script>
+const DATA = {"dates": ["2022-08", "2022-09", "2022-10", "2022-11", "2022-12", "2023-01", "2023-02", "2023-03", "2023-04", "2023-05", "2023-06", "2023-07", "2023-08", "2023-09", "2023-10", "2023-11", "2023-12", "2024-01", "2024-02", "2024-03", "2024-04", "2024-05", "2024-06", "2024-07", "2024-08", "2024-09", "2024-10", "2024-11", "2024-12", "2025-01", "2025-02", "2025-03", "2025-04", "2025-05", "2025-06", "2025-07", "2025-08", "2025-09", "2025-10", "2025-11", "2025-12", "2026-01", "2026-02", "2026-03", "2026-04", "2026-05", "2026-06", "2026-07"], "real": [9630.299, 10251.463, 9106.906, 7350.898, 12285.013, 7210.104, 5576.998, 6648.943, 8525.213, 7428.518, 6618.344, 10251.381, 8574.422, 8853.157, 11343.447, 9180.757, 12310.301, 4916.502, 5690.96, 6504.837, 6356.898, 7687.409, 6111.243, 11481.558, 6375.458, 7003.032, 10899.564, 7461.092, 12917.157, 5233.063, 5157.814, 6202.39, 6840.338, 5905.905, 5055.258, 8601.489, 4877.567, 6672.551, 9619.03, 7302.922, 7676.57, 4467.835, 3492.41, 5340.148, 5268.324, 5327.083, 5044.84, 5205.246], "future_labels": ["2026-08", "2026-09", "2026-10"], "horizon": 3, "n_eval_origins": 10, "n_calib_origins": 10, "calib_range": ["2024-09", "2025-06"], "models": {"naive": {"label": "Naive", "category": "Informales o Simplistas", "fitted": [null, 9630.299, 10251.463, 9106.906, 7350.898, 12285.013, 7210.104, 5576.998, 6648.943, 8525.213, 7428.518, 6618.344, 10251.381, 8574.422, 8853.157, 11343.447, 9180.757, 12310.301, 4916.502, 5690.96, 6504.837, 6356.898, 7687.409, 6111.243, 11481.558, 6375.458, 7003.032, 10899.564, 7461.092, 12917.157, 5233.063, 5157.814, 6202.39, 6840.338, 5905.905, 5055.258, 8601.489, 4877.567, 6672.551, 9619.03, 7302.922, 7676.57, 4467.835, 3492.41, 5340.148, 5268.324, 5327.083, 5044.84], "forecast": [5205.246, 5205.246, 5205.246], "mae": 1840.12, "rmse": 2340.69, "mape": 34.64, "wape": 30.84, "facc": 69.16, "note": "pronostico(t) = valor(t-1)"}, "naive_est": {"label": "Naive Estacional", "category": "Informales o Simplistas", "fitted": [null, null, null, null, null, null, null, null, null, null, null, null, 9630.299, 10251.463, 9106.906, 7350.898, 12285.013, 7210.104, 5576.998, 6648.943, 8525.213, 7428.518, 6618.344, 10251.381, 8574.422, 8853.157, 11343.447, 9180.757, 12310.301, 4916.502, 5690.96, 6504.837, 6356.898, 7687.409, 6111.243, 11481.558, 6375.458, 7003.032, 10899.564, 7461.092, 12917.157, 5233.063, 5157.814, 6202.39, 6840.338, 5905.905, 5055.258, 8601.489], "forecast": [4877.567, 6672.551, 9619.03], "mae": 1398.16, "rmse": 2017.5, "mape": 24.08, "wape": 23.43, "facc": 76.57, "note": "pronostico(t) = valor(t-12) (mismo mes del año anterior)"}, "prom": {"label": "Promedio Simple", "category": "Tendencia Central", "fitted": [null, 9630.299, 9940.881, 9662.889, 9084.892, 9724.916, 9305.781, 8773.097, 8507.578, 8509.537, 8401.435, 8239.336, 8407.007, 8419.885, 8450.833, 8643.674, 8677.241, 8890.951, 8670.148, 8513.349, 8412.923, 8315.017, 8286.49, 8191.914, 8328.982, 8250.841, 8202.848, 8302.727, 8272.668, 8432.823, 8326.165, 8223.96, 8160.786, 8120.772, 8055.629, 7969.904, 7987.448, 7903.397, 7871.007, 7915.828, 7900.505, 7895.043, 7813.443, 7712.954, 7659.026, 7605.9, 7556.36, 7502.924], "forecast": [7455.055, 7455.055, 7455.055], "mae": 2199.45, "rmse": 2500.72, "mape": 45.11, "wape": 36.86, "facc": 63.14, "note": "promedio acumulado de todos los datos anteriores"}, "ma3": {"label": "Media Movil (3)", "category": "Tendencia Central", "fitted": [null, null, null, 9662.889, 8903.089, 9580.939, 8948.672, 8357.372, 6478.682, 6917.051, 7534.225, 7524.025, 8099.414, 8481.382, 9226.32, 9590.342, 9792.454, 10944.835, 8802.52, 7639.254, 5704.1, 6184.232, 6849.715, 6718.517, 8426.737, 7989.42, 8286.683, 8092.685, 8454.563, 10425.938, 8537.104, 7769.345, 5531.089, 6066.847, 6316.211, 5933.834, 6520.884, 6178.105, 6717.202, 7056.383, 7864.834, 8199.507, 6482.442, 5212.272, 4433.464, 4700.294, 5311.852, 5213.416], "forecast": [5192.39, 5192.39, 5192.39], "mae": 1552.42, "rmse": 2096.35, "mape": 31.04, "wape": 26.02, "facc": 73.98, "note": "promedio movil de los ultimos 3 meses"}, "ma12": {"label": "Media Movil (12)", "category": "Tendencia Central", "fitted": [null, null, null, null, null, null, null, null, null, null, null, null, 8407.007, 8319.017, 8202.491, 8388.87, 8541.358, 8543.465, 8352.332, 8361.829, 8349.82, 8169.127, 8190.701, 8148.443, 8250.958, 8067.711, 7913.533, 7876.543, 7733.238, 7783.809, 7810.189, 7765.76, 7740.556, 7780.843, 7632.384, 7544.386, 7304.38, 7179.556, 7152.016, 7045.304, 7032.124, 6595.408, 6531.639, 6392.855, 6321.002, 6190.001, 6141.766, 6140.897], "forecast": [5857.877, 5857.877, 5857.877], "mae": 1444.63, "rmse": 1723.61, "mape": 28.84, "wape": 24.21, "facc": 75.79, "note": "promedio movil de los ultimos 12 meses"}, "wma": {"label": "Promedio Ponderado", "category": "Tendencia Central", "fitted": [null, null, null, 9387.569, 8233.347, 10876.522, 7984.966, 7261.6, 6612.562, 7614.856, 7421.48, 7147.973, 9110.294, 8399.076, 9113.464, 10381.609, 9427.472, 11642.894, 6919.823, 7003.25, 6043.282, 6235.148, 7237.467, 6395.398, 9876.367, 7067.651, 7875.706, 9353.346, 7866.872, 11682.084, 6840.338, 6840.338, 5840.333, 6384.303, 6106.862, 5564.589, 7500.555, 5462.176, 6824.735, 8165.371, 7506.923, 8040.189, 5549.306, 4536.847, 4881.159, 4896.301, 5321.277, 5134.389], "forecast": [5207.959, 5207.959, 5207.959], "mae": 1558.37, "rmse": 2086.11, "mape": 30.54, "wape": 26.12, "facc": 73.88, "note": "pesos w1=0.215, w2=0.147, w3=0.638 (mas antiguo a mas reciente; optimizados minimizando MAE, sujeto a suma=1, calibrado 2024-09 a 2025-06)", "state": {"weights": [0.2154156797285454, 0.1467085911001088, 0.6378757291713459]}}, "ses": {"label": "SES (Suavizacion Exponencial Simple)", "category": "Suavizacion", "fitted": [10220.976, 9925.637, 10088.55, 9597.728, 8474.313, 10379.663, 8794.884, 7185.941, 6917.442, 7721.327, 7574.923, 7096.633, 8674.007, 8624.215, 8738.686, 10041.066, 9610.912, 10960.606, 7938.554, 6814.757, 6659.797, 6508.348, 7097.878, 6604.561, 9043.059, 7709.259, 7356.145, 9127.855, 8294.473, 10605.815, 7919.439, 6538.627, 6370.508, 6605.423, 6255.664, 5655.461, 7128.475, 6003.021, 6337.786, 7978.408, 7640.665, 7658.618, 6063.226, 4777.818, 5058.983, 5163.654, 5245.368, 5145.104], "forecast": [5175.175, 5175.175, 5175.175], "mae": 1479.82, "rmse": 2016.79, "mape": 29.1, "wape": 24.8, "facc": 75.2, "note": "alpha=0.50 (calibrado 2024-09 a 2025-06, h=1..3)", "state": {"alpha": 0.5, "initial_level": 10220.975599999996}}, "holt": {"label": "Holt (doble)", "category": "Suavizacion", "fitted": [9890.15, 9481.369, 9381.572, 8968.347, 8152.287, 9061.279, 8175.101, 7064.845, 6609.249, 6853.213, 6694.979, 6341.163, 7183.403, 7269.883, 7414.04, 8262.036, 8206.827, 9107.044, 7519.056, 6639.802, 6268.487, 5964.185, 6150.326, 5807.776, 7179.085, 6607.171, 6395.104, 7415.617, 7098.434, 8513.225, 7198.351, 6255.365, 5908.647, 5857.329, 5541.076, 5064.505, 5794.775, 5188.787, 5303.091, 6267.047, 6246.984, 6345.034, 5451.049, 4532.632, 4444.061, 4360.515, 4319.66, 4206.388], "forecast": [4175.22, 3844.395, 3513.569], "mae": 1723.91, "rmse": 2067.16, "mape": 28.87, "wape": 28.89, "facc": 71.11, "note": "alpha=0.30, beta=0.00 (calibrado 2024-09 a 2025-06)", "state": {"alpha": 0.3, "beta": 0.0, "initial_level": 10220.975599999996, "initial_trend": -330.82547272727237}}, "hw": {"label": "Holt-Winters (triple)", "category": "Suavizacion", "fitted": [7482.745, 8655.781, 12016.539, 9158.486, 11994.692, 6002.528, 6006.945, 7046.65, 7824.44, 7647.746, 6602.522, 10880.572, 8441.031, 9112.218, 9991.799, 8110.465, 12311.76, 6774.475, 5648.349, 6750.929, 8094.136, 7190.276, 6318.012, 10232.869, 8362.759, 8604.795, 10121.178, 8001.825, 11450.017, 5089.896, 5092.748, 6032.019, 6654.261, 7062.112, 5658.224, 10242.89, 6418.574, 6855.27, 9675.084, 6775.835, 11308.531, 3699.307, 3654.693, 4550.657, 5175.629, 4835.032, 3821.105, 8036.005], "forecast": [4097.839, 5338.077, 8211.621], "mae": 914.95, "rmse": 1410.84, "mape": 15.25, "wape": 15.33, "facc": 84.67, "note": "alpha=0.10, beta=0.10, gamma=0.50 (calibrado 2024-09 a 2025-06, estacionalidad=12)", "state": {"alpha": 0.1, "beta": 0.1, "gamma": 0.5, "initial_level": 8411.874299999985, "initial_trend": -10.755996212121715, "initial_seasons": [-918.3731504629541, 29.18816898149006, 3203.700780092605, 639.0319467592615, 3676.491766203645, -2327.111469907396, -2437.935261574066, -1345.4186504629508, -514.0647060185131, -754.0502060185132, -1768.3733865740655, 2516.914168981458]}}, "reg": {"label": "Regresion Lineal", "category": "Regresion", "fitted": [8653.531, 9484.146, 11531.332, 9113.012, 12586.355, 6745.971, 6268.64, 7463.174, 8036.788, 7876.324, 6996.516, 10174.013, 7794.135, 8624.749, 10671.935, 8253.616, 11726.959, 5886.574, 5409.244, 6603.778, 7177.392, 7016.927, 6137.12, 9314.617, 6934.738, 7765.352, 9812.538, 7394.219, 10867.562, 5027.178, 4549.847, 5744.381, 6317.995, 6157.53, 5277.723, 8455.22, 6075.342, 6905.956, 8953.142, 6534.822, 10008.165, 4167.781, 3690.451, 4884.985, 5458.598, 5298.134, 4418.326, 7595.824], "forecast": [5215.945, 6046.559, 8093.745], "mae": 902.19, "rmse": 1394.67, "mape": 14.77, "wape": 15.12, "facc": 84.88, "note": "valor = b0 + b1*t + dummies mensuales (referencia=Enero)"}, "sarima": {"label": "SARIMA", "category": "ARIMA", "fitted": [null, 9630.299, 10042.965, 9363.875, 7894.383, 11101.032, 8259.242, 6300.225, 6554.916, 7993.952, 7580.979, 6877.904, 16640.507, 11174.368, 8850.932, 8796.24, 11934.201, 8313.95, 5788.561, 6610.144, 8024.623, 6951.28, 6609.347, 8187.859, 9668.136, 8436.82, 9113.232, 8071.629, 10322.252, 5333.641, 4874.871, 5605.892, 6147.535, 6761.04, 5732.227, 8741.4, 6981.288, 6711.416, 8756.267, 6739.875, 10485.689, 4173.877, 3669.232, 4492.881, 5263.734, 4795.268, 4118.944, 6844.47], "forecast": [4873.235, 5613.202, 7573.324], "mae": 1176.67, "rmse": 1608.11, "mape": 20.93, "wape": 19.72, "facc": 80.28, "note": "SARIMA(0, 1, 1)x(1, 1, 1, 12), orden elegido por AIC en 2022-08 a 2025-06", "ci_lower": [2685.514, 3426.402, 5391.959], "ci_upper": [7060.957, 7800.002, 9754.689]}}, "best_model": "reg", "holdout_range": ["2025-07", "2026-04"]};
+
+const CATEGORY_ORDER = [
+  {id:'grid-1', keys:['naive','naive_est']},
+  {id:'grid-2', keys:['prom','ma3','ma12','wma']},
+  {id:'grid-3', keys:['ses','holt','hw']},
+  {id:'grid-4', keys:['reg']},
+  {id:'grid-5', keys:['sarima']},
+];
+
+function effectiveTheme(){
+  const explicit = document.documentElement.getAttribute('data-theme');
+  if (explicit === 'dark' || explicit === 'light') return explicit;
+  return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+}
+
+// Selector de tema manual (Sistema / Claro / Oscuro) — permite forzar fondo
+// blanco sin depender del tema del sistema operativo. Se recuerda por navegador.
+const THEME_KEY = 'pronostico-theme-choice';
+function applyThemeChoice(choice){
+  if (choice === 'light' || choice === 'dark') document.documentElement.setAttribute('data-theme', choice);
+  else document.documentElement.removeAttribute('data-theme');
+  document.querySelectorAll('#themeSwitch button').forEach(b =>
+    b.classList.toggle('active', b.dataset.themeChoice === choice));
+  try { localStorage.setItem(THEME_KEY, choice); } catch(e) {}
+}
+// buildEverything() se dispara solo via el MutationObserver sobre data-theme
+// (mas abajo), que ya escucha este mismo cambio de atributo.
+document.querySelectorAll('#themeSwitch button').forEach(b =>
+  b.addEventListener('click', () => applyThemeChoice(b.dataset.themeChoice)));
+let savedThemeChoice = 'system';
+try { savedThemeChoice = localStorage.getItem(THEME_KEY) || 'system'; } catch(e) {}
+applyThemeChoice(savedThemeChoice);
+
+// Una sola fuente de verdad: los colores de las graficas se leen de los tokens CSS
+// (:root), asi que un cambio de tema (claro/oscuro) los mantiene sincronizados.
+function readTheme(){
+  const cs = getComputedStyle(document.documentElement);
+  const v = name => cs.getPropertyValue(name).trim();
+  return {
+    text: v('--ink-2'), muted: v('--ink-muted'), grid: v('--grid-line'),
+    real: v('--data-real'), model: v('--data-model'), ci: v('--data-ci'),
+    good: v('--status-good'), accentBar: v('--accent'),
+  };
+}
+
+function fmt(v){
+  if (v === null || v === undefined) return '—';
+  return Math.round(v).toLocaleString('es-CO');
+}
+
+const MONTH_NAMES = {'01':'Ene','02':'Feb','03':'Mar','04':'Abr','05':'May','06':'Jun',
+  '07':'Jul','08':'Ago','09':'Sep','10':'Oct','11':'Nov','12':'Dic'};
+function monthLabel(ym){ const [y,m] = ym.split('-'); return `${MONTH_NAMES[m]} ${y}`; }
+
+let charts = [];
+function destroyAll(){ charts.forEach(c=>c.destroy()); charts = []; }
+
+function baseOptions(t, extra){
+  return Object.assign({
+    responsive:true, maintainAspectRatio:false,
+    interaction:{mode:'index', intersect:false},
+    plugins:{
+      legend:{
+        position:'top', align:'start',
+        labels:{color:t.text, boxWidth:16, boxHeight:2, usePointStyle:true, pointStyle:'line',
+          filter:(item, data) => !(data.datasets[item.datasetIndex] && data.datasets[item.datasetIndex].isCI),
+          font:{family:"'IBM Plex Sans'", size:12.5}}
+      },
+      tooltip:{
+        backgroundColor: effectiveTheme()==='dark' ? '#1E2A24' : '#17231D', titleColor:'#fff', bodyColor:'#E7EEEA',
+        borderColor:'transparent', padding:10, titleFont:{family:"'IBM Plex Mono'", size:11},
+        bodyFont:{family:"'IBM Plex Mono'", size:12},
+        filter: item => !(item.dataset && item.dataset.isCI),
+        callbacks:{ label: ctx => `${ctx.dataset.label}: ${fmt(ctx.parsed.y)}` }
+      }
+    },
+    scales:{
+      x:{ ticks:{color:t.muted, maxRotation:0, autoSkip:true, maxTicksLimit:9, font:{family:"'IBM Plex Mono'", size:10.5}},
+          grid:{color:t.grid, drawTicks:false} },
+      y:{ ticks:{color:t.muted, font:{family:"'IBM Plex Mono'", size:10.5}, callback:v=>fmt(v)},
+          grid:{color:t.grid} }
+    }
+  }, extra||{});
+}
+
+function buildOverview(){
+  const t = readTheme();
+  const ctx = document.getElementById('chartOverview');
+  const c = new Chart(ctx, {
+    type:'line',
+    data:{ labels:DATA.dates, datasets:[{
+      label:'Valor real', data:DATA.real, borderColor:t.real, backgroundColor:t.real,
+      pointRadius:0, borderWidth:2.25, tension:0.2, fill:false,
+    }]},
+    options: baseOptions(t, { plugins:{ legend:{display:false} } })
+  });
+  charts.push(c);
+}
+
+function buildTile(canvasId, key){
+  const m = DATA.models[key];
+  const t = readTheme();
+  const labels = DATA.dates.concat(DATA.future_labels);
+  const lastHist = DATA.dates.length - 1;
+  const realData = DATA.real.concat([null, null, null]);
+  const modelData = m.fitted.concat(m.forecast);
+
+  const datasets = [
+    { label:'Real', data:realData, borderColor:t.real, backgroundColor:t.real,
+      pointRadius:0, borderWidth:2, tension:0.2, spanGaps:false },
+    { label:m.label, data:modelData, borderColor:t.model, backgroundColor:t.model,
+      pointRadius:0, borderWidth:2, tension:0.2, spanGaps:false,
+      segment:{ borderDash: c => (c.p1DataIndex > lastHist ? [6,5] : undefined) } },
+  ];
+
+  if (m.ci_lower){
+    const lo = new Array(lastHist+1).fill(null).concat(m.ci_lower);
+    const hi = new Array(lastHist+1).fill(null).concat(m.ci_upper);
+    datasets.push({ label:'IC 95% inf', data:lo, borderWidth:0, pointRadius:0, fill:false, isCI:true });
+    datasets.push({ label:'IC 95% (pronóstico)', data:hi, borderWidth:0, pointRadius:0,
+      fill:'-1', backgroundColor:t.ci, isCI:true });
+  }
+
+  const c = new Chart(document.getElementById(canvasId), {
+    type:'line', data:{labels, datasets}, options: baseOptions(t)
+  });
+  charts.push(c);
+}
+
+function renderTile(container, key){
+  const m = DATA.models[key];
+  const canvasId = 'c_' + key;
+  const div = document.createElement('div');
+  div.className = 'tile';
+  div.innerHTML = `
+    <div class="tile-head"><h3>Real vs ${m.label}</h3>
+      ${(key===DATA.best_model) ? '<span class="chip">Mejor ajuste</span>' : ''}</div>
+    <div class="tile-formula mono">${m.note} · MAPE ${m.mape.toFixed(2)}%</div>
+    <div class="chart-box"><canvas id="${canvasId}"></canvas></div>`;
+  container.appendChild(div);
+}
+
+function renderAllTiles(){
+  CATEGORY_ORDER.forEach(cat=>{
+    const grid = document.getElementById(cat.id);
+    cat.keys.forEach(k => renderTile(grid, k));
+  });
+}
+
+function buildAllTileCharts(){
+  CATEGORY_ORDER.forEach(cat=>{
+    cat.keys.forEach(k => buildTile('c_' + k, k));
+  });
+}
+
+function buildMapeChart(){
+  const t = readTheme();
+  const entries = Object.keys(DATA.models).map(k => ({k, ...DATA.models[k]}));
+  entries.sort((a,b)=>a.mape-b.mape);
+  const colors = entries.map(e => e.k===DATA.best_model ? t.good : t.accentBar);
+  const c = new Chart(document.getElementById('chartMape'), {
+    type:'bar',
+    data:{ labels:entries.map(e=>e.label), datasets:[{
+      label:'MAPE', data:entries.map(e=>e.mape), backgroundColor:colors,
+      borderRadius:4, barThickness:16,
+    }]},
+    options:{
+      indexAxis:'y', responsive:true, maintainAspectRatio:false,
+      plugins:{ legend:{display:false},
+        tooltip:{ callbacks:{ label: ctx => `MAPE: ${ctx.parsed.x.toFixed(2)}%` } } },
+      scales:{
+        x:{ ticks:{color:t.muted, callback:v=>v+'%', font:{family:"'IBM Plex Mono'", size:10.5}}, grid:{color:t.grid} },
+        y:{ ticks:{color:t.text, font:{family:"'IBM Plex Sans'", size:12.5}}, grid:{display:false} }
+      }
+    }
+  });
+  charts.push(c);
+}
+
+function renderMetricsTable(){
+  const entries = Object.keys(DATA.models).map(k => ({k, ...DATA.models[k]}));
+  entries.sort((a,b)=>a.mape-b.mape);
+  const bestMape = Math.min(...entries.map(e=>e.mape));
+  const tbody = document.querySelector('#tableMetrics tbody');
+  tbody.innerHTML = entries.map(e => `
+    <tr class="${Math.abs(e.mape-bestMape)<0.05 ? 'best':''}">
+      <td class="model-name">${e.label}</td>
+      <td class="tabular">${fmt(e.mae)}</td>
+      <td class="tabular">${fmt(e.rmse)}</td>
+      <td class="tabular">${e.mape.toFixed(2)}%</td>
+      <td class="tabular">${e.wape.toFixed(2)}%</td>
+      <td class="tabular">${e.facc.toFixed(2)}%</td>
+    </tr>`).join('');
+}
+
+function renderForecastTable(){
+  document.getElementById('thAug').textContent = monthLabel(DATA.future_labels[0]);
+  document.getElementById('thSep').textContent = monthLabel(DATA.future_labels[1]);
+  document.getElementById('thOct').textContent = monthLabel(DATA.future_labels[2]);
+  const entries = Object.keys(DATA.models).map(k => ({k, ...DATA.models[k]}));
+  entries.sort((a,b)=>a.mape-b.mape);
+  const bestMape = Math.min(...entries.map(e=>e.mape));
+  const tbody = document.querySelector('#tableForecast tbody');
+  tbody.innerHTML = entries.map(e => `
+    <tr class="${Math.abs(e.mape-bestMape)<0.05 ? 'best':''}">
+      <td class="model-name">${e.label}</td>
+      <td class="tabular">${fmt(e.forecast[0])}</td>
+      <td class="tabular">${fmt(e.forecast[1])}</td>
+      <td class="tabular">${fmt(e.forecast[2])}</td>
+    </tr>`).join('');
+}
+
+function renderStats(){
+  const best = DATA.models[DATA.best_model];
+  document.getElementById('bestModelLabel').textContent = best.label.split(' (')[0];
+  document.getElementById('bestModelMape').textContent = `MAPE ${best.mape.toFixed(2)}%`;
+  document.getElementById('holdoutRangeLabel').textContent =
+    `evaluado ${DATA.holdout_range[0]} a ${DATA.holdout_range[1]}`;
+  document.getElementById('calibRangeLabel').textContent =
+    `${DATA.calib_range[0]} a ${DATA.calib_range[1]}`;
+}
+
+function buildEverything(){
+  destroyAll();
+  buildOverview();
+  buildAllTileCharts();
+  buildMapeChart();
+}
+
+renderStats();
+renderAllTiles();
+renderMetricsTable();
+renderForecastTable();
+buildEverything();
+
+window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', buildEverything);
+new MutationObserver(buildEverything).observe(document.documentElement, {attributes:true, attributeFilter:['data-theme']});
+</script>

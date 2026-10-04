@@ -1,23 +1,45 @@
-# Virtual environment
+# Security & Sensitive Data
+.env
+.env.*
+*.env
+*.key
+*.pem
+*.token
+*secret*
+*credential*
+*.p12
+
+# Vercel
+.vercel
+audit-results.xml
+
+# Python & Testing
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.coverage
+htmlcov/
 .venv/
 venv/
 ENV/
 env/
 
-# Python cache
-__pycache__/
-*.py[cod]
-*$py.class
-.pytest_cache/
+# Streamlit Local Secrets
+.streamlit/secrets.toml
+planificador-volpak4/.streamlit/secrets.toml
 
-# macOS / OS files
+# macOS & Operating System
 .DS_Store
 .DS_Store?
 ._*
 .Spotlight-V100
 .Trashes
+ehthumbs.db
+Thumbs.db
 
-# Streamlit local secrets
-.streamlit/secrets.toml
-.vercel
-.env*
+# IDE & Editors
+.idea/
+.vscode/
+*.swp
+*.swo
