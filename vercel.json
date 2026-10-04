@@ -2,11 +2,11 @@
   "version": 2,
   "cleanUrls": true,
   "rewrites": [
-    { "source": "/", "destination": "/plataforma-calidad-iso-2026/index.html" },
-    { "source": "/index.html", "destination": "/plataforma-calidad-iso-2026/index.html" },
-    { "source": "/informe_ejecutivo_iso_calidad.html", "destination": "/plataforma-calidad-iso-2026/index.html" },
-    { "source": "/calidad", "destination": "/plataforma-calidad-iso-2026/index.html" },
-    { "source": "/pronosticos", "destination": "/analitica-pronosticos/Analisis_pronosticos.html" },
-    { "source": "/arboles", "destination": "/arboles-decision-ml/arbol_decision_app.html" }
+    { "source": "/", "destination": "/plataforma-calidad-iso-2026" },
+    { "source": "/index.html", "destination": "/plataforma-calidad-iso-2026" },
+    { "source": "/informe_ejecutivo_iso_calidad.html", "destination": "/plataforma-calidad-iso-2026" },
+    { "source": "/calidad", "destination": "/plataforma-calidad-iso-2026" },
+    { "source": "/pronosticos", "destination": "/analitica-pronosticos/Analisis_pronosticos" },
+    { "source": "/arboles", "destination": "/arboles-decision-ml/arbol_decision_app" }
   ]
 }
